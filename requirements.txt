@@ -1,0 +1,48 @@
+# ============================================================
+# UC4 Aim Assist — Python Dependencies
+# ============================================================
+# Install with:
+#   pip install -r requirements.txt
+#
+# GPU/CUDA-specific packages (install SEPARATELY per NVIDIA instructions):
+#   torch + torchvision:  https://pytorch.org/get-started/locally/
+#   TensorRT:             https://developer.nvidia.com/tensorrt
+#
+# System prerequisites (Windows):
+#   ViGEm Bus Driver:  https://github.com/nefarius/ViGEmBus/releases
+#   hidapi DLL:        bundled with hidapi wheel below
+# ============================================================
+
+# Core ML / Detection
+ultralytics>=8.2.0          # YOLOv8 + TensorRT export
+torch>=2.2.0                # CUDA build from pytorch.org (NOT from PyPI)
+torchvision>=0.17.0
+
+# Tracking
+supervision>=0.20.0         # ByteTrack, annotation utilities
+
+# Computer vision
+opencv-python>=4.9.0.80
+numpy>=1.26.0
+
+# Screen capture
+mss>=9.0.1                  # High-performance Windows screen capture
+
+# Windows HID
+hidapi>=0.14.0              # Physical DualSense HID read
+
+# Virtual gamepad (requires ViGEm Bus Driver)
+vgamepad>=0.1.0
+
+# Window detection
+pywin32>=306                # win32gui for Chiaki window location
+
+# Config
+PyYAML>=6.0.1
+
+# Dataset / training utilities
+yt-dlp>=2024.1.1            # Video download
+Pillow>=10.2.0
+
+# Utilities
+tqdm>=4.66.2

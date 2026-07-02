@@ -1,0 +1,199 @@
+# ============================================================
+# UC4 Aim Assist - Main Configuration
+# ============================================================
+
+detection:
+  model_path: "models/enemy_detector.engine"   # TensorRT engine (primary)
+  fallback_model: "models/training/enemy_detector/weights/best.pt"   # PyTorch fallback if no engine
+  confidence_threshold: 0.45
+  nms_threshold: 0.45
+  device: "cuda:0"
+  input_size: [640, 640]
+  half_precision: true        # FP16 for TensorRT speed
+  # "finetuned"   = load model_path / fallback_model (default, live system)
+  # "coco_person" = load yolov8n.pt COCO base weights, detect person class only
+  detector_mode: "coco_person"
+
+enemy_classification:
+  # Red marker detection (enemy)
+  red_hsv_lower1: [0, 120, 100]       # First red hue range (0-10°)
+  red_hsv_upper1: [10, 255, 255]
+  red_hsv_lower2: [165, 120, 100]     # Second red hue range (165-180°)
+  red_hsv_upper2: [180, 255, 255]
+  # Blue marker detection (teammate — IGNORE)
+  blue_hsv_lower: [95, 120, 80]
+  blue_hsv_upper: [130, 255, 255]
+  # Where to look for the colored marker (relative to bbox top)
+  marker_search_above_ratio: 0.35     # Look 35% of bbox height above top
+  marker_search_width_ratio: 0.50     # Center 50% of bbox width
+  min_marker_pixels: 40               # Min colored pixels to confirm marker
+  # Motion filter for objects without clear markers
+  motion_min_pixels: 120              # Changed pixels to count as "moving"
+
+object_filter:
+  # Reject detections in HUD areas (normalized 0.0-1.0)
+  hud_exclusion_zones:
+    - [0.00, 0.00, 1.00, 0.08]       # Top bar
+    - [0.00, 0.88, 1.00, 1.00]       # Bottom bar (health, ammo)
+    - [0.00, 0.00, 0.15, 0.25]       # Top-left (minimap area)
+  min_bbox_area_px: 400               # Smaller = noise
+  max_bbox_area_px: 250000            # Larger = background element
+  max_bbox_area_fraction: 0.45        # Close-range: allow boxes up to 45% of frame area
+  min_aspect_ratio: 0.40              # bbox height/width (very wide = not a person)
+  max_aspect_ratio: 5.00              # Very tall = flag/pole, reject
+  # ── Size-adjusted confidence (close-range detections) ──────────────────
+  # Large, close-range boxes are inherently less certain (partial occlusion,
+  # motion blur) — relax the confidence requirement for them specifically.
+  conf_threshold: 0.55                # Standard confidence floor
+  large_box_area_fraction: 0.15       # Boxes above this fraction of frame area...
+  large_box_conf_threshold: 0.40      # ...only need this confidence instead
+  # ── Self-player exclusion (Fix A) ──────────────────────────────────────
+  # In third-person view the local character always occupies the lower-centre
+  # region.  Any detection whose bbox CENTRE falls inside this rectangle is
+  # rejected before it reaches ByteTrack.
+  # Exception: if every candidate in a frame would be rejected (spectator /
+  # kill-cam mode, no local player present), none are rejected.
+  self_excl_x_min: 0.35              # 35% from left edge
+  self_excl_x_max: 0.65              # 65% from left edge
+  self_excl_y_min: 0.75              # 75% from top (lower quarter)
+  self_excl_y_max: 1.00              # bottom of frame
+  # ── Low-res override (frame_height < 720) ──────────────────────────────
+  # At 640×358 the player character appears higher in frame (cy ≈ 60-70%)
+  # because less vertical space is available. Widen the exclusion zone.
+  self_excl_x_min_lowres: 0.35
+  self_excl_x_max_lowres: 0.65
+  self_excl_y_min_lowres: 0.60      # catch player at 60% height instead of 75%
+  self_excl_y_max_lowres: 1.00
+  # ── Self-player bottom-edge gate (Fix B) ───────────────────────────────
+  # Reject any detection whose bbox BOTTOM is at or below this fraction of
+  # frame height.  The local character is the only entity always touching
+  # (or extending past) the bottom crop.
+  self_excl_bottom_max: 0.95         # reject if y2 / frame_height >= 0.95
+
+tracking:
+  track_activation_threshold: 0.35   # Min confidence to start a track
+  lost_track_buffer: 45               # Frames to keep lost track alive (0.75s@60fps)
+  minimum_matching_threshold: 0.70    # IoU for track matching
+  frame_rate: 60
+
+target_selector:
+  # Acquisition radius: max distance from screen centre for initial lock-on.
+  # Increase if the box misses enemies that are clearly being aimed at.
+  # Decrease if the box appears on enemies that are NOT being aimed at.
+  lock_radius_px: 150
+  max_lost_frames: 8
+  iou_match_thresh: 0.25
+
+target_lock:
+  # ── Engagement gate ──────────────────────────────────────────────────────
+  # An enemy must be the ONLY detected enemy within strict_radius_px of screen
+  # centre AND have been stably tracked for min_stable_frames before a box
+  # is shown.  This prevents boxes on bystanders or brief false detections.
+  strict_radius_px: 380               # Circular engagement zone (px from screen centre)
+  strict_radius_px_lowres: 125       # Lowres override: 17% of 640×358 diagonal (matches 1080p proportion)
+  min_stable_frames: 8                # Track must be this old before it can be engaged
+  engagement_hold_frames: 45          # Frames to hold box after engagement gate closes
+  # Live system: R2 must exceed this threshold to count as "actively firing"
+  r2_activation_threshold: 0.30
+  # ── Kalman predictor (still used for PID aim-point smoothing) ────────────
+  kalman_max_predict_frames: 50       # Max frames to predict before releasing lock
+  reacquire_distance_px: 80           # Max px from Kalman prediction to reacquire
+  # ── Self-player belt-and-suspenders (Fix C) ────────────────────────────
+  # Belt-and-suspenders: even if a detection slips past Fix A/B, TargetLock
+  # will not maintain HOLDING unless the track is at least this many frames
+  # old.  (min_stable_frames=8 already gates ENGAGED — this is an extra,
+  # separate guard on the HOLDING path.)
+  min_hold_track_age: 3
+  # ── High-confidence fast-track (Prompt 4) ──────────────────────────────
+  # Detections at or above this confidence skip the normal stability gate —
+  # stable after just 1 frame of track age.
+  high_conf_fast_track: 0.75
+  # ── Crowded scene modifier (Prompt 6) ──────────────────────────────────
+  # When more than this many valid detections are visible in a frame, the
+  # stability gate is temporarily relaxed to 1 frame (chaotic multi-enemy
+  # scenes cost more from missed engagements than from a slightly looser gate).
+  crowded_min_detections: 2
+  # ── Target priority scoring (Prompt 7) ─────────────────────────────────
+  crosshair_y_ratio: 0.45             # UC4 is third-person: crosshair sits below screen centre
+  switch_min_score_drop: 0.20         # Current lock's score must fall below this to allow a switch
+  switch_min_score_gap: 0.40          # New candidate must beat current score by more than this
+  # ── Lock persistence and hysteresis (Prompt 3) ──────────────────────────
+  # Frames the locked track can vanish before ENGAGED releases to NO_BOX.
+  # During this window the box stays ENGAGED, driven by Kalman prediction.
+  lock_release_frames: 12
+  # Re-acquisition from NO_BOX requires higher confidence and proximity to
+  # the last confirmed position — prevents snapping to a different enemy.
+  min_reacq_confidence: 0.65
+  max_reacq_distance: 200
+  # After this many consecutive NO_BOX frames, last-known position is cleared
+  # and any target in the zone can be acquired as if fresh.
+  lock_expiry_frames: 90
+
+roi:
+  # Fraction of bbox height (0=top/head, 1=bottom/feet)
+  y_start_ratio: 0.10                 # Start at 10% from top (above head for buffer)
+  y_end_ratio:   0.65                 # End at 65% (waist level)
+  aim_point_ratio: 0.30               # Aim point at 30% (upper chest / neck)
+
+pid:
+  x:
+    kp: 0.22
+    ki: 0.000
+    kd: 0.04
+    max_output: 0.38                  # Max stick deflection (-1 to 1 range)
+  y:
+    kp: 0.22
+    ki: 0.000
+    kd: 0.04
+    max_output: 0.38
+  deadzone_fraction: 0.018            # Ignore error < 1.8% of screen width/height
+  output_smoothing: 0.55              # EMA smoothing (0=no smooth, 1=frozen)
+  assist_strength: 0.38               # Final scale: 0=no assist, 1=full correction
+
+controller:
+  # Physical DualSense HID IDs
+  vendor_id: 0x054C
+  product_id: 0x0CE6
+  read_timeout_ms: 1
+  # USB HID report byte offsets (report ID 0x01)
+  lx_byte: 1
+  ly_byte: 2
+  rx_byte: 3
+  ry_byte: 4
+  l2_byte: 5
+  r2_byte: 6
+  btn0_byte: 8                        # Triangle/Circle/Cross/Square/DPad
+  btn1_byte: 9                        # L1/R1/L2btn/R2btn/Share/Options/L3/R3
+  btn2_byte: 10                       # PS/Touchpad/Mute
+  # Activation thresholds (0.0-1.0 fraction of full press)
+  l2_activation_threshold: 0.45      # L2: ADS mode gate
+  r2_activation_threshold: 0.30      # R2: actively firing gate (mirrors target_lock)
+  # Virtual gamepad type: "ds4" or "xbox360"
+  virtual_gamepad_type: "ds4"
+
+capture:
+  window_title: "Chiaki"              # Partial match of Chiaki window title
+  target_fps: 60
+  capture_width: 1920
+  capture_height: 1080
+  # If Chiaki is windowed at a specific position (set to null for auto-detect)
+  window_x: null
+  window_y: null
+  # Scale factor for downsampling before detection (1.0 = no scale)
+  scale_factor: 1.0
+  # Pre-warm the capture thread before starting main loop
+  warmup_frames: 30
+
+performance:
+  target_latency_ms: 10.0
+  profiler_enabled: true
+  profiler_log_interval_frames: 300   # Log summary every N frames (~5s@60fps)
+  # CUDA stream priority for async inference
+  cuda_stream_priority: -1            # -1 = high priority
+
+logging:
+  level: "INFO"                       # DEBUG / INFO / WARNING / ERROR
+  log_to_file: true
+  log_dir: "logs"
+  max_log_size_mb: 50
+  backup_count: 3

@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.env
+
+# Model files (too large for GitHub)
+*.pt
+*.engine
+*.onnx
+*.trt
+
+# Dataset and videos (too large)
+dataset/
+*.mp4
+*.avi
+*.mov
+
+# Demo output files
+demo_*.mp4
+demo_*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+runs/
+
+# Large data archives
+*.zip
+*.tar.gz
+*.tar
+
+# Evaluation outputs
+eval_results/

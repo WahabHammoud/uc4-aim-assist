@@ -1,0 +1,72 @@
+"""
+UC4 Aim Assist — Entry Point.
+
+Usage:
+    python main.py                         # Run with default config
+    python main.py --config config/config.yaml --debug
+    python main.py --config config/config.yaml --no-gamepad   # dry-run (detection only)
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="UC4 Aim Assist — PS5 Enemy Detection & Target Lock"
+    )
+    parser.add_argument(
+        "--config", default="config/config.yaml",
+        help="Path to config YAML (default: config/config.yaml)"
+    )
+    parser.add_argument(
+        "--debug", action="store_true",
+        help="Show real-time OpenCV debug overlay with detections and lock state"
+    )
+    parser.add_argument(
+        "--no-gamepad", action="store_true",
+        help="Skip virtual gamepad output (useful for testing detection without a DualSense)"
+    )
+    args = parser.parse_args()
+
+    # Validate config path
+    config_path = Path(args.config)
+    if not config_path.exists():
+        print(f"[ERROR] Config not found: {config_path}")
+        print("        Run from the uc4_aim_assist/ directory.")
+        sys.exit(1)
+
+    # Import here so errors surface cleanly
+    from src.pipeline.inference_pipeline import InferencePipeline
+    from src.utils.logger import get_logger
+    import yaml
+
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+
+    log = get_logger("main", cfg.get("logging", {}))
+    log.info("=" * 60)
+    log.info("UC4 Aim Assist — Uncharted 4 PS5 Enemy Tracking System")
+    log.info("=" * 60)
+
+    if args.no_gamepad:
+        log.info("--no-gamepad: Virtual gamepad output disabled.")
+        cfg.setdefault("controller", {})["virtual_gamepad_type"] = "none"
+
+    # Pass the (possibly patched) config dict directly so in-memory patches
+    # are not lost when InferencePipeline re-reads the YAML from disk.
+    pipeline = InferencePipeline(config_path=str(config_path), config=cfg)
+
+    try:
+        pipeline.start()
+        pipeline.run(show_debug=args.debug)
+    except Exception as exc:
+        log.exception("Fatal error in pipeline: %s", exc)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
