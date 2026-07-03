@@ -174,6 +174,10 @@ class InferencePipeline:
         self._running = True
         prev_time = time.perf_counter()
 
+        if show_debug:
+            cv2.destroyWindow("UC4 Aim Assist Debug")
+            cv2.namedWindow("UC4 Aim Assist Debug", cv2.WINDOW_NORMAL)
+
         try:
             while self._running:
                 self._profiler.begin_frame()
