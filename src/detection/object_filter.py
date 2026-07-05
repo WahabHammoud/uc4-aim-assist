@@ -108,6 +108,12 @@ class ObjectFilter:
             if not self._conf_valid(det, frame_area):
                 log.debug("Rejected (conf=%.2f): %.0f,%.0f", det.confidence, det.cx, det.cy)
                 continue
+            log.info(
+                "DETECTION_PASSED: accepted detection at (%.0f%%, %.0f%%) conf=%.2f",
+                det.cx / frame_width * 100.0,
+                det.cy / frame_height * 100.0,
+                det.confidence,
+            )
             passed.append(det)
 
         return self._apply_self_exclusion(passed, frame_width, frame_height)

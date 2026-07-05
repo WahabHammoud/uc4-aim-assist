@@ -54,7 +54,7 @@ object_filter:
   # Exception: if every candidate in a frame would be rejected (spectator /
   # kill-cam mode, no local player present), none are rejected.
   self_excl_x_min: 0.35              # 35% from left edge
-  self_excl_x_max: 0.60              # 60% from left edge (tightened: was 0.65)
+  self_excl_x_max: 0.65              # 65% from left edge
   self_excl_y_min: 0.75              # 75% from top (lower quarter)
   self_excl_y_max: 1.00              # bottom of frame
   # ── Low-res override (frame_height < 720) ──────────────────────────────
@@ -91,7 +91,7 @@ target_lock:
   # is shown.  This prevents boxes on bystanders or brief false detections.
   strict_radius_px: 380               # Circular engagement zone (px from screen centre)
   strict_radius_px_lowres: 125       # Lowres override: 17% of 640×358 diagonal (matches 1080p proportion)
-  min_stable_frames: 8                # Track must be this old before it can be engaged
+  min_stable_frames: 4                # Track must be this old before it can be engaged
   engagement_hold_frames: 45          # Frames to hold box after engagement gate closes
   # Live system: R2 must exceed this threshold to count as "actively firing"
   r2_activation_threshold: 0.30
@@ -101,7 +101,7 @@ target_lock:
   # ── Self-player belt-and-suspenders (Fix C) ────────────────────────────
   # Belt-and-suspenders: even if a detection slips past Fix A/B, TargetLock
   # will not maintain HOLDING unless the track is at least this many frames
-  # old.  (min_stable_frames=8 already gates ENGAGED — this is an extra,
+  # old.  (min_stable_frames=4 already gates ENGAGED — this is an extra,
   # separate guard on the HOLDING path.)
   min_hold_track_age: 3
   # ── High-confidence fast-track (Prompt 4) ──────────────────────────────

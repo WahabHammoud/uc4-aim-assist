@@ -142,8 +142,8 @@ class InferencePipeline:
         self._ds_reader = DualSenseReader(self._cfg["controller"])
         if not self._ds_reader.connect():
             log.warning(
-                "DualSense not found — running without physical controller input.\n"
-                "Aim assist will activate automatically (no L2 gating)."
+                "Running in AUTO mode — box will appear automatically on detected enemies. "
+                "Connect DualSense for manual L2/R2 control."
             )
 
         # 8. Virtual gamepad
@@ -175,7 +175,7 @@ class InferencePipeline:
         prev_time = time.perf_counter()
 
         if show_debug:
-            cv2.destroyWindow("UC4 Aim Assist Debug")
+            cv2.destroyAllWindows()
             cv2.namedWindow("UC4 Aim Assist Debug", cv2.WINDOW_NORMAL)
 
         try:
