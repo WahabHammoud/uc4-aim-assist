@@ -133,7 +133,7 @@ roi:
   # Fraction of bbox height (0=top/head, 1=bottom/feet)
   y_start_ratio: 0.10                 # Start at 10% from top (above head for buffer)
   y_end_ratio:   0.65                 # End at 65% (waist level)
-  aim_point_ratio: 0.30               # Aim point at 30% (upper chest / neck)
+  aim_point_ratio: 0.50               # Aim point at 50% (centre of bounding box)
 
 pid:
   x:

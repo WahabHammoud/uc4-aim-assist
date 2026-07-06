@@ -23,6 +23,7 @@ The loop runs until stop() is called or a keyboard interrupt is raised.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Optional
 
 import cv2
@@ -145,6 +146,10 @@ class InferencePipeline:
                 "Running in AUTO mode — box will appear automatically on detected enemies. "
                 "Connect DualSense for manual L2/R2 control."
             )
+        else:
+            log.info(
+                "DualSense connected — L2 gating active. Box appears only when L2 is pressed."
+            )
 
         # 8. Virtual gamepad
         self._vgamepad = VirtualGamepad({
@@ -168,16 +173,20 @@ class InferencePipeline:
         Parameters
         ----------
         show_debug : bool
-            If True, display an OpenCV overlay window with detections,
-            tracking IDs, and aim point.  Adds ~2 ms of overhead.
+            If True, save every 10th frame as a JPEG to
+            ~/Desktop/debug_frames/ with the locked box drawn on it.
+            No popup window is created.
         """
         self._running = True
         prev_time = time.perf_counter()
 
-        cv2.destroyAllWindows()
-        cv2.waitKey(1)
+        _debug_dir: Optional[Path] = None
+        _debug_frame_count = 0
+        _debug_save_count  = 0
         if show_debug:
-            cv2.namedWindow("UC4 Aim Assist Debug", cv2.WINDOW_NORMAL)
+            _debug_dir = Path.home() / "Desktop" / "debug_frames"
+            _debug_dir.mkdir(parents=True, exist_ok=True)
+            log.info("Debug mode: saving every 10th frame to %s", _debug_dir)
 
         try:
             while self._running:
@@ -255,17 +264,20 @@ class InferencePipeline:
                     if self._vgamepad and self._vgamepad.is_connected:
                         self._vgamepad.send(ctrl_state, correction_x, correction_y)
 
-                # ---- 10. Debug overlay ----
+                # ---- 10. Debug frames (saved to disk, no popup window) ----
                 if show_debug:
-                    with self._profiler.section("debug_overlay"):
-                        debug_frame = self._draw_debug(
-                            frame, classified, tracked_enemies,
-                            aim_point, lock_state, correction_x, correction_y,
-                        )
-                        cv2.imshow("UC4 Aim Assist Debug", debug_frame)
-                        key = cv2.waitKey(1) & 0xFF
-                        if key == ord("q"):
-                            break
+                    _debug_frame_count += 1
+                    if _debug_frame_count % 10 == 0:
+                        with self._profiler.section("debug_overlay"):
+                            _debug_save_count += 1
+                            debug_frame = self._draw_debug(
+                                frame, classified, tracked_enemies,
+                                aim_point, lock_state, correction_x, correction_y,
+                            )
+                            cv2.imwrite(
+                                str(_debug_dir / f"frame_{_debug_save_count:03d}.jpg"),
+                                debug_frame,
+                            )
 
                 self._profiler.end_frame()
 
@@ -327,8 +339,6 @@ class InferencePipeline:
 
     def _shutdown(self, show_debug: bool) -> None:
         log.info("Shutting down pipeline…")
-        if show_debug:
-            cv2.destroyAllWindows()
         if self._capture:
             self._capture.stop()
         if self._ds_reader:
