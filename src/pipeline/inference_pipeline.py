@@ -174,8 +174,9 @@ class InferencePipeline:
         self._running = True
         prev_time = time.perf_counter()
 
+        cv2.destroyAllWindows()
+        cv2.waitKey(1)
         if show_debug:
-            cv2.destroyAllWindows()
             cv2.namedWindow("UC4 Aim Assist Debug", cv2.WINDOW_NORMAL)
 
         try:
@@ -293,10 +294,9 @@ class InferencePipeline:
         overlay = frame.copy()
         H, W = overlay.shape[:2]
 
-        # Single red box — read pre-clamped locked_box from TargetLock directly,
-        # so the box persists during Kalman dropout frames when ByteTrack has no track.
+        # Single red box — only when actively ENGAGED (not HOLDING or NO_BOX).
         locked_box = self._lock_sm.locked_box if self._lock_sm else None
-        if locked_box is not None and lock_state != LockState.NO_BOX:
+        if lock_state == LockState.ENGAGED and locked_box is not None:
             cv2.rectangle(overlay, (locked_box[0], locked_box[1]), (locked_box[2], locked_box[3]), (0, 0, 255), 2)
 
         # Aim point crosshair on the locked target
