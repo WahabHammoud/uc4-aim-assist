@@ -112,12 +112,16 @@ class DualSenseReader:
     at any time to get the latest snapshot without blocking.
     """
 
-    VENDOR_ID  = 0x054C
-    PRODUCT_ID = 0x0CE6
+    # (vendor_id, product_id, human-readable name)
+    SUPPORTED_DEVICES = [
+        (1356, 3302, "DualSense standard"),   # 0x054C / 0x0CE6
+        (1356, 3570, "DualSense Edge"),        # 0x054C / 0x0DF2
+        (1356, 3308, "DualSense USB alt"),     # 0x054C / 0x0CEC
+    ]
 
     def __init__(self, config: dict):
-        self._vendor_id   = config.get("vendor_id",  self.VENDOR_ID)
-        self._product_id  = config.get("product_id", self.PRODUCT_ID)
+        self._cfg_vendor  = config.get("vendor_id",  1356)
+        self._cfg_product = config.get("product_id", 3302)
         self._timeout_ms  = config.get("read_timeout_ms", 1)
         self._state       = ControllerState()
         self._lock        = threading.Lock()
@@ -136,25 +140,37 @@ class DualSenseReader:
             log.error("hid library not installed. Run: pip install hidapi")
             return False
 
-        try:
-            self._device = hid.device()
-            self._device.open(self._vendor_id, self._product_id)
-            self._device.set_nonblocking(True)
-            log.info(
-                "DualSense connected: %s",
-                self._device.get_manufacturer_string(),
-            )
-            with self._lock:
-                self._state.connected = True
-            self._stop_event.clear()
-            self._thread = threading.Thread(
-                target=self._read_loop, daemon=True, name="DualSenseReader"
-            )
-            self._thread.start()
-            return True
-        except Exception as exc:
-            log.error("Failed to open DualSense: %s", exc)
-            return False
+        # Build candidate list: config-specified device first (if not already
+        # in the built-in list), then the full SUPPORTED_DEVICES list.
+        candidates = list(self.SUPPORTED_DEVICES)
+        cfg_pair = (self._cfg_vendor, self._cfg_product)
+        if not any(d[0] == cfg_pair[0] and d[1] == cfg_pair[1] for d in candidates):
+            candidates.insert(0, (cfg_pair[0], cfg_pair[1], "config-specified"))
+
+        for vid, pid, name in candidates:
+            try:
+                dev = hid.device()
+                dev.open(vid, pid)
+                dev.set_nonblocking(True)
+                self._device = dev
+                log.info("%s connected — L2 gating active", name)
+                with self._lock:
+                    self._state.connected = True
+                self._stop_event.clear()
+                self._thread = threading.Thread(
+                    target=self._read_loop, daemon=True, name="DualSenseReader"
+                )
+                self._thread.start()
+                return True
+            except Exception:
+                log.debug("Device (vid=%d pid=%d) not found, trying next…", vid, pid)
+
+        log.error(
+            "No supported DualSense found (tried %d variants). "
+            "Check USB connection and ViGEm driver.",
+            len(candidates),
+        )
+        return False
 
     def disconnect(self) -> None:
         self._stop_event.set()
