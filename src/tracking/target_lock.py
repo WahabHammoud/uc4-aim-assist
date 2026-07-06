@@ -9,9 +9,10 @@ enemy.  The engagement gate requires:
   2. R2 held  (player is actively firing)
      — live:    real R2 trigger value from DualSenseReader
      — demo:    caller passes r2_held=True when inferred from video geometry
-  3. Exactly ONE enemy is within strict_radius_px of screen centre
-     (ambiguous = multiple candidates → no box)
-  4. That enemy's track has been visible for at least min_stable_frames
+  3. At least ONE enemy is within strict_radius_px of screen centre.
+     When multiple candidates are present the highest-priority one is selected
+     by score_candidate() (50% crosshair proximity, 30% confidence, 20% age).
+  4. The selected enemy's track has been visible for at least min_stable_frames
      (new/unstable detection → no box)
 
 Once engaged, the box is held for engagement_hold_frames after the gate
@@ -26,13 +27,13 @@ States
 
 Transitions
 -----------
-  NO_BOX + gate_open + single_stable_candidate → ENGAGED  (lock acquired)
-  ENGAGED + conditions still met               → ENGAGED  (maintains lock)
-  ENGAGED + conditions fail + enemy visible    → HOLDING  (hold countdown)
-  HOLDING + conditions met again               → ENGAGED  (re-engages)
-  HOLDING + hold countdown expires             → NO_BOX
-  HOLDING + locked enemy lost                  → NO_BOX
-  any + L2 released                            → NO_BOX
+  NO_BOX + gate_open + stable_best_candidate → ENGAGED  (lock acquired)
+  ENGAGED + conditions still met             → ENGAGED  (maintains lock)
+  ENGAGED + conditions fail + enemy visible  → HOLDING  (hold countdown)
+  HOLDING + conditions met again             → ENGAGED  (re-engages)
+  HOLDING + hold countdown expires           → NO_BOX
+  HOLDING + locked enemy lost                → NO_BOX
+  any + L2 released                          → NO_BOX
 
 Kalman predictor
 ----------------
