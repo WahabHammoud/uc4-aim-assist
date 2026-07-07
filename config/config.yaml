@@ -130,22 +130,23 @@ target_lock:
   lock_expiry_frames: 90
 
 roi:
-  # Fraction of bbox height (0=top/head, 1=bottom/feet)
+  # Fraction of bbox (0=left/top, 1=right/bottom)
   y_start_ratio: 0.10                 # Start at 10% from top (above head for buffer)
   y_end_ratio:   0.65                 # End at 65% (waist level)
-  aim_point_ratio: 0.50               # Aim point at 50% (centre of bounding box)
+  aim_point_ratio: 0.70               # Aim point Y: 70% from top (lower body)
+  aim_point_x_ratio: 0.40            # Aim point X: 40% from left edge of bbox
 
 pid:
   x:
-    kp: 0.22
+    kp: 0.05
     ki: 0.000
-    kd: 0.04
-    max_output: 0.38                  # Max stick deflection (-1 to 1 range)
+    kd: 0.01
+    max_output: 0.30                  # Max stick deflection (-1 to 1 range)
   y:
-    kp: 0.22
+    kp: 0.05
     ki: 0.000
-    kd: 0.04
-    max_output: 0.38
+    kd: 0.01
+    max_output: 0.30
   deadzone_fraction: 0.018            # Ignore error < 1.8% of screen width/height
   output_smoothing: 0.55              # EMA smoothing (0=no smooth, 1=frozen)
   assist_strength: 0.38               # Final scale: 0=no assist, 1=full correction

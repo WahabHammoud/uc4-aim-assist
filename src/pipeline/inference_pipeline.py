@@ -134,6 +134,7 @@ class InferencePipeline:
             frame_width=self._frame_w,
             frame_height=self._frame_h,
             aim_point_ratio=self._cfg["roi"]["aim_point_ratio"],
+            aim_point_x_ratio=self._cfg["roi"].get("aim_point_x_ratio", 0.50),
         )
 
         # 6. PID

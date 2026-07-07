@@ -83,6 +83,7 @@ class TargetLock:
         frame_width: int,
         frame_height: int,
         aim_point_ratio: float = 0.30,
+        aim_point_x_ratio: float = 0.50,
     ):
         _radius_std    = float(config.get("strict_radius_px",         380))
         _radius_lowres = float(config.get("strict_radius_px_lowres", 125))
@@ -114,7 +115,8 @@ class TargetLock:
         self._max_reacq_distance   = float(config.get("max_reacq_distance",    200))
         self._lock_expiry_frames   = int(  config.get("lock_expiry_frames",      90))
 
-        self._aim_ratio     = aim_point_ratio
+        self._aim_ratio   = aim_point_ratio
+        self._aim_x_ratio = aim_point_x_ratio
 
         self._fw = frame_width
         self._fh = frame_height
@@ -326,8 +328,8 @@ class TargetLock:
                     self._smooth_w = 0.25 * raw_w + 0.75 * self._smooth_w
                     self._smooth_h = 0.25 * raw_h + 0.75 * self._smooth_h
 
-                ax = (cx1 + cx2) / 2.0
-                ay = cy1 + self._aim_ratio * (cy2 - cy1)
+                ax = cx1 + self._aim_x_ratio * (cx2 - cx1)
+                ay = cy1 + self._aim_ratio   * (cy2 - cy1)
                 self._kalman.update(ax, ay)
                 self._last_aim_x, self._last_aim_y = ax, ay
                 # Update confirmed last-known position every real (non-predicted) frame
