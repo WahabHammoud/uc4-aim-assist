@@ -30,6 +30,10 @@ def main() -> None:
         "--no-gamepad", action="store_true",
         help="Skip virtual gamepad output (useful for testing detection without a DualSense)"
     )
+    parser.add_argument(
+        "--overlay", action="store_true",
+        help="Show transparent always-on-top red box overlay on the Chiaki window"
+    )
     args = parser.parse_args()
 
     # Validate config path
@@ -60,12 +64,23 @@ def main() -> None:
     # are not lost when InferencePipeline re-reads the YAML from disk.
     pipeline = InferencePipeline(config_path=str(config_path), config=cfg)
 
+    overlay = None
+    if args.overlay:
+        from src.overlay.overlay_window import OverlayWindow
+        window_title = cfg.get("capture", {}).get("window_title", "Chiaki")
+        overlay = OverlayWindow(window_title=window_title)
+        overlay.start()
+        log.info("Overlay started — red box will appear on the Chiaki window.")
+
     try:
         pipeline.start()
-        pipeline.run(show_debug=args.debug)
+        pipeline.run(show_debug=args.debug, overlay=overlay)
     except Exception as exc:
         log.exception("Fatal error in pipeline: %s", exc)
         sys.exit(1)
+    finally:
+        if overlay:
+            overlay.stop()
 
 
 if __name__ == "__main__":

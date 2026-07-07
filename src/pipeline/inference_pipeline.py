@@ -167,7 +167,7 @@ class InferencePipeline:
     def stop(self) -> None:
         self._running = False
 
-    def run(self, show_debug: bool = False) -> None:
+    def run(self, show_debug: bool = False, overlay=None) -> None:
         """
         Main loop. Runs until stop() is called.
 
@@ -177,6 +177,9 @@ class InferencePipeline:
             If True, save every 10th frame as a JPEG to
             ~/Desktop/debug_frames/ with the locked box drawn on it.
             No popup window is created.
+        overlay : OverlayWindow | None
+            If provided, update_box() is called after every frame so the
+            transparent overlay reflects the current lock state in real time.
         """
         self._running = True
         prev_time = time.perf_counter()
@@ -265,7 +268,14 @@ class InferencePipeline:
                     if self._vgamepad and self._vgamepad.is_connected:
                         self._vgamepad.send(ctrl_state, correction_x, correction_y)
 
-                # ---- 10. Debug frames (saved to disk, no popup window) ----
+                # ---- 10. Overlay update ----
+                if overlay is not None:
+                    overlay.update_box(
+                        self._lock_sm.locked_box if self._lock_sm else None,
+                        lock_state == LockState.ENGAGED,
+                    )
+
+                # ---- 11. Debug frames (saved to disk, no popup window) ----
                 if show_debug:
                     _debug_frame_count += 1
                     if _debug_frame_count % 10 == 0:
