@@ -55,7 +55,7 @@ object_filter:
   # kill-cam mode, no local player present), none are rejected.
   self_excl_x_min: 0.35              # 35% from left edge
   self_excl_x_max: 0.65              # 65% from left edge
-  self_excl_y_min: 0.75              # 75% from top (lower quarter)
+  self_excl_y_min: 0.65              # 75% from top (lower quarter)
   self_excl_y_max: 1.00              # bottom of frame
   # ── Low-res override (frame_height < 720) ──────────────────────────────
   # At 640×358 the player character appears higher in frame (cy ≈ 60-70%)
