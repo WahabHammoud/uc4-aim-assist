@@ -57,8 +57,11 @@ def main() -> None:
     log.info("=" * 60)
 
     if args.no_gamepad:
-        log.info("--no-gamepad: Virtual gamepad output disabled.")
         cfg.setdefault("controller", {})["virtual_gamepad_type"] = "none"
+        log.info(
+            "--no-gamepad active: PID corrections computed but NOT sent to ViGEm. "
+            "Right stick will not move. Detection and lock logic run normally."
+        )
 
     # Pass the (possibly patched) config dict directly so in-memory patches
     # are not lost when InferencePipeline re-reads the YAML from disk.

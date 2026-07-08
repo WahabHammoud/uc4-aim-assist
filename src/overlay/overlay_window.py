@@ -84,11 +84,21 @@ class OverlayWindow:
         """Return (left, top, width, height) of the Chiaki window, or None."""
         try:
             import pygetwindow as gw
-            wins = gw.getWindowsWithTitle(self._window_title)
-            if not wins:
-                return None
-            w = wins[0]
-            return w.left, w.top, w.width, w.height
+
+            # Try exact known titles first (fastest path)
+            for title in ("chiaki-ng", "Chiaki-ng", "chiaki", "Chiaki", "PS4", "PS5"):
+                wins = gw.getWindowsWithTitle(title)
+                if wins:
+                    w = wins[0]
+                    return w.left, w.top, w.width, w.height
+
+            # Fallback: scan every open window for 'chiaki' substring
+            for w in gw.getAllWindows():
+                if "chiaki" in w.title.lower():
+                    log.info("Overlay: found window via fallback scan: '%s'", w.title)
+                    return w.left, w.top, w.width, w.height
+
+            return None
         except Exception as exc:
             log.warning("pygetwindow: %s", exc)
             return None

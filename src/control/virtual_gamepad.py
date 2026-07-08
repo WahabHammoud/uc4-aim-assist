@@ -44,9 +44,10 @@ class VirtualGamepad:
     """
 
     def __init__(self, config: dict):
-        self._gamepad_type   = config.get("virtual_gamepad_type", "ds4").lower()
-        self._assist_strength = config.get("assist_strength", 0.38)  # from root config
-        self._gamepad = None
+        self._gamepad_type    = config.get("virtual_gamepad_type", "ds4").lower()
+        self._assist_strength = config.get("assist_strength", 0.38)
+        self._disabled        = (self._gamepad_type == "none")
+        self._gamepad   = None
         self._connected = False
 
     # ------------------------------------------------------------------
@@ -101,7 +102,7 @@ class VirtualGamepad:
         correction_x / correction_y are the PID outputs in [-1, 1].
         They are scaled by assist_strength before adding.
         """
-        if not self._connected or self._gamepad is None:
+        if self._disabled or not self._connected or self._gamepad is None:
             return
 
         assist_x = self._assist_strength * correction_x
