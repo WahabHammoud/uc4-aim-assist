@@ -53,9 +53,9 @@ object_filter:
   # rejected before it reaches ByteTrack.
   # Exception: if every candidate in a frame would be rejected (spectator /
   # kill-cam mode, no local player present), none are rejected.
-  self_excl_x_min: 0.35              # 35% from left edge
-  self_excl_x_max: 0.65              # 65% from left edge
-  self_excl_y_min: 0.65              # 75% from top (lower quarter)
+  self_excl_x_min: 0.42              # tight centre — weapon/hands only in ADS
+  self_excl_x_max: 0.58
+  self_excl_y_min: 0.82              # only very bottom of frame
   self_excl_y_max: 1.00              # bottom of frame
   # ── Low-res override (frame_height < 720) ──────────────────────────────
   # At 640×358 the player character appears higher in frame (cy ≈ 60-70%)
@@ -68,7 +68,7 @@ object_filter:
   # Reject any detection whose bbox BOTTOM is at or below this fraction of
   # frame height.  The local character is the only entity always touching
   # (or extending past) the bottom crop.
-  self_excl_bottom_max: 0.95         # reject if y2 / frame_height >= 0.95
+  self_excl_bottom_max: 0.97         # reject if y2 / frame_height >= 0.97
 
 tracking:
   track_activation_threshold: 0.35   # Min confidence to start a track
@@ -89,7 +89,7 @@ target_lock:
   # An enemy must be the ONLY detected enemy within strict_radius_px of screen
   # centre AND have been stably tracked for min_stable_frames before a box
   # is shown.  This prevents boxes on bystanders or brief false detections.
-  strict_radius_px: 380               # Circular engagement zone (px from screen centre)
+  strict_radius_px: 500               # Circular engagement zone (px from screen centre)
   strict_radius_px_lowres: 125       # Lowres override: 17% of 640×358 diagonal (matches 1080p proportion)
   min_stable_frames: 4                # Track must be this old before it can be engaged
   engagement_hold_frames: 45          # Frames to hold box after engagement gate closes
