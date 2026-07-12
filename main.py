@@ -34,6 +34,14 @@ def main() -> None:
         "--overlay", action="store_true",
         help="Show transparent always-on-top red box overlay on the Chiaki window"
     )
+    parser.add_argument(
+        "--capture-card", action="store_true",
+        help="Use UVC capture card (KASTWAVE AvedioLink / any UVC) instead of Chiaki screen capture"
+    )
+    parser.add_argument(
+        "--device-index", type=int, default=0,
+        help="Capture card device index (default: 0). Run tools/find_capture_device.py to list devices."
+    )
     args = parser.parse_args()
 
     # Validate config path
@@ -61,6 +69,14 @@ def main() -> None:
         log.info(
             "--no-gamepad active: PID corrections computed but NOT sent to ViGEm. "
             "Right stick will not move. Detection and lock logic run normally."
+        )
+
+    if args.capture_card:
+        cfg.setdefault("capture", {})["mode"] = "capture_card"
+        cfg["capture"]["capture_card_index"] = args.device_index
+        log.info(
+            "--capture-card active: using UVC capture card on device index %d.",
+            args.device_index,
         )
 
     # Pass the (possibly patched) config dict directly so in-memory patches

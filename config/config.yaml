@@ -53,9 +53,9 @@ object_filter:
   # rejected before it reaches ByteTrack.
   # Exception: if every candidate in a frame would be rejected (spectator /
   # kill-cam mode, no local player present), none are rejected.
-  self_excl_x_min: 0.35              # weapon/hands only in ADS — bottom 12% of screen
-  self_excl_x_max: 0.65
-  self_excl_y_min: 0.88              # only very bottom 12% excluded
+  self_excl_x_min: 0.40              # weapon/hands only in ADS
+  self_excl_x_max: 0.60
+  self_excl_y_min: 0.85              # only bottom 15% excluded
   self_excl_y_max: 1.00              # bottom of frame
   # ── Low-res override (frame_height < 720) ──────────────────────────────
   # At 640×358 the player character appears higher in frame (cy ≈ 60-70%)
@@ -68,7 +68,7 @@ object_filter:
   # Reject any detection whose bbox BOTTOM is at or below this fraction of
   # frame height.  The local character is the only entity always touching
   # (or extending past) the bottom crop.
-  self_excl_bottom_max: 0.98         # reject if y2 / frame_height >= 0.98
+  self_excl_bottom_max: 0.97         # reject if y2 / frame_height >= 0.97
 
 tracking:
   track_activation_threshold: 0.35   # Min confidence to start a track
@@ -173,10 +173,14 @@ controller:
   virtual_gamepad_type: "ds4"
 
 capture:
+  mode: "chiaki"                      # "chiaki" (screen capture) or "capture_card" (UVC)
   window_title: "Chiaki"              # Partial match of Chiaki window title
   target_fps: 60
   capture_width: 1920
   capture_height: 1080
+  capture_card_index: 0               # UVC device index (run tools/find_capture_device.py)
+  capture_card_width: 1920            # KASTWAVE AvedioLink: 1080P@60FPS
+  capture_card_height: 1080
   # If Chiaki is windowed at a specific position (set to null for auto-detect)
   window_x: null
   window_y: null

@@ -96,15 +96,31 @@ class InferencePipeline:
         log.info("Starting UC4 Aim Assist pipeline…")
 
         # 1. Screen capture
-        self._capture = ChiakiCapture(self._cfg["capture"])
+        capture_cfg = self._cfg["capture"]
+        if capture_cfg.get("mode", "chiaki") == "capture_card":
+            from src.capture.capture_card import CaptureCardCapture
+            self._capture = CaptureCardCapture(capture_cfg)
+            log.info(
+                "Capture mode: capture_card (device %d)",
+                capture_cfg.get("capture_card_index", 0),
+            )
+        else:
+            self._capture = ChiakiCapture(capture_cfg)
+            log.info("Capture mode: chiaki (screen capture)")
         self._capture.start()
-        log.info("Waiting for first frame from Chiaki…")
+        log.info("Waiting for first frame…")
         frame = None
         for _ in range(60):
             frame = self._capture.get_frame(timeout=0.1)
             if frame is not None:
                 break
         if frame is None:
+            mode = self._cfg["capture"].get("mode", "chiaki")
+            if mode == "capture_card":
+                raise RuntimeError(
+                    "No frame received from capture card after 6 s. "
+                    "Run tools/find_capture_device.py to check device index."
+                )
             raise RuntimeError(
                 "No frame received from Chiaki capture after 6 s. "
                 "Is Chiaki open and streaming?"
