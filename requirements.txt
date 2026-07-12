@@ -36,6 +36,10 @@ vgamepad>=0.1.0
 
 # Window detection
 pywin32>=306                # win32gui for Chiaki window location
+pygetwindow>=0.0.9          # overlay window position tracking
+
+# Capture card
+cv2-enumerate-cameras>=0.1.17  # list UVC devices by name (find_capture_device.py)
 
 # Config
 PyYAML>=6.0.1
