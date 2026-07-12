@@ -15,6 +15,7 @@ Requires: pip install pygetwindow
 
 from __future__ import annotations
 
+import time
 import threading
 import tkinter as tk
 from typing import Optional, Tuple
@@ -104,12 +105,19 @@ class OverlayWindow:
             return None
 
     def _run(self) -> None:
-        geo = self._find_chiaki()
+        # Retry for up to 10 s — Chiaki may still be loading when the pipeline starts
+        geo = None
+        t0 = time.time()
+        while time.time() - t0 < 10.0 and self._running:
+            geo = self._find_chiaki()
+            if geo is not None:
+                break
+            time.sleep(0.5)
+
         if geo is None:
             log.error(
-                "Overlay: Chiaki window '%s' not found — "
-                "open Chiaki before starting the overlay.",
-                self._window_title,
+                "Overlay: Chiaki window not found after 10 s — overlay disabled. "
+                "Open Chiaki first, or use --show-feed for capture card mode.",
             )
             return
 

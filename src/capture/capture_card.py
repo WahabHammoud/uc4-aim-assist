@@ -29,50 +29,15 @@ class CaptureCardCapture:
         self._running = False
         self._thread  = None
 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def start(self):
         log.info("Opening capture card device %d via DirectShow…", self._device_index)
-        self._cap = cv2.VideoCapture(self._device_index, cv2.CAP_DSHOW)
+        self._cap = self._open_device()
 
-        if not self._cap.isOpened():
-            raise RuntimeError(
-                f"Capture card device {self._device_index} could not be opened. "
-                "Run tools/find_capture_device.py to list available devices."
-            )
-
-        # FOURCC must come first — MS2130 silently resets to 640x480 otherwise
-        self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUY2"))
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH,  self._width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
-        self._cap.set(cv2.CAP_PROP_FPS, 60)
-        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-        actual_w   = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        actual_h   = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        actual_fps = self._cap.get(cv2.CAP_PROP_FPS)
-        log.info(
-            "Capture card negotiated: %dx%d @ %.0ffps",
-            actual_w, actual_h, actual_fps,
-        )
-
-        if actual_w != self._width or actual_h != self._height:
-            log.warning(
-                "Requested %dx%d but got %dx%d",
-                self._width, self._height, actual_w, actual_h,
-            )
-            log.warning("Check USB port is 3.0 and FOURCC is set correctly")
-
-        # MJPG fallback if YUY2 didn't negotiate the target resolution
-        if actual_w == 640:
-            log.warning("YUY2 mode failed (still 640px wide), trying MJPG fallback…")
-            self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH,  self._width)
-            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
-            self._cap.set(cv2.CAP_PROP_FPS, 60)
-            actual_w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            log.info("After MJPG retry: %dx%d", actual_w, actual_h)
-
-        # Warm-up: confirm a live frame arrives within 5 s
+        # Warm-up: confirm a live frame arrives within 5 s before spawning thread
         log.info("Testing capture card — waiting for first frame…")
         t0 = time.time()
         first_frame = None
@@ -100,13 +65,6 @@ class CaptureCardCapture:
         self._thread.start()
         log.info("Capture card started on device index %d", self._device_index)
 
-    def _capture_loop(self):
-        while self._running:
-            ret, frame = self._cap.read()
-            if ret:
-                with self._lock:
-                    self._frame = frame
-
     def get_frame(self, timeout=None):
         with self._lock:
             return self._frame.copy() if self._frame is not None else None
@@ -116,3 +74,112 @@ class CaptureCardCapture:
         if self._cap:
             self._cap.release()
         log.info("Capture card stopped.")
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _open_device(self) -> cv2.VideoCapture:
+        """Open device with DirectShow, set FOURCC+resolution, log negotiated values."""
+        cap = cv2.VideoCapture(self._device_index, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            raise RuntimeError(
+                f"Capture card device {self._device_index} could not be opened. "
+                "Run tools/find_capture_device.py to list available devices."
+            )
+
+        # FOURCC must come first — MS2130 silently resets to 640×480 otherwise
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUY2"))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH,  self._width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+        cap.set(cv2.CAP_PROP_FPS, 60)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        actual_w   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        actual_fps = cap.get(cv2.CAP_PROP_FPS)
+        log.info(
+            "Capture card negotiated: %dx%d @ %.0ffps",
+            actual_w, actual_h, actual_fps,
+        )
+
+        if actual_w != self._width or actual_h != self._height:
+            log.warning(
+                "Requested %dx%d but got %dx%d",
+                self._width, self._height, actual_w, actual_h,
+            )
+            log.warning("Check USB port is 3.0 and FOURCC is set correctly")
+
+        # MJPG fallback if YUY2 didn't negotiate the target resolution
+        if actual_w == 640:
+            log.warning("YUY2 mode failed (still 640px wide), trying MJPG fallback…")
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH,  self._width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+            cap.set(cv2.CAP_PROP_FPS, 60)
+            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            log.info("After MJPG retry: %dx%d", actual_w, actual_h)
+
+        return cap
+
+    def _reconnect(self) -> bool:
+        """Try to reopen the capture device for up to 10 seconds. Returns True on success."""
+        t0 = time.time()
+        attempt = 0
+        while time.time() - t0 < 10.0 and self._running:
+            attempt += 1
+            try:
+                if self._cap:
+                    self._cap.release()
+                self._cap = self._open_device()
+                ret, frame = self._cap.read()
+                if ret and frame is not None:
+                    log.info("Capture card reconnected (attempt %d).", attempt)
+                    with self._lock:
+                        self._frame = frame
+                    return True
+            except Exception as exc:
+                log.debug("Reconnect attempt %d failed: %s", attempt, exc)
+            time.sleep(1.0)
+        log.error(
+            "Capture card device %d failed to reconnect after 10 s — signal lost.",
+            self._device_index,
+        )
+        with self._lock:
+            self._frame = None
+        return False
+
+    def _capture_loop(self):
+        consecutive_failures = 0
+        fps_count = 0
+        fps_t     = time.time()
+
+        while self._running:
+            ret, frame = self._cap.read()
+            if ret and frame is not None:
+                consecutive_failures = 0
+                with self._lock:
+                    self._frame = frame
+
+                fps_count += 1
+                elapsed = time.time() - fps_t
+                if elapsed >= 5.0:
+                    log.info(
+                        "Capture card FPS: %.1f (target: 60)",
+                        fps_count / elapsed,
+                    )
+                    fps_count = 0
+                    fps_t     = time.time()
+            else:
+                consecutive_failures += 1
+                # ~0.5 s of consecutive failures → assume signal lost
+                if consecutive_failures >= 30:
+                    log.warning(
+                        "Capture card signal lost, attempting reconnect…"
+                    )
+                    if not self._reconnect():
+                        return  # give up; get_frame() returns None until restart
+                    consecutive_failures = 0
+                    fps_count = 0
+                    fps_t     = time.time()

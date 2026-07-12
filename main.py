@@ -42,6 +42,10 @@ def main() -> None:
         "--device-index", type=int, default=0,
         help="Capture card device index (default: 0). Run tools/find_capture_device.py to list devices."
     )
+    parser.add_argument(
+        "--show-feed", action="store_true",
+        help="Show capture card feed in a fullscreen window with the red box drawn on frame (use with --capture-card)"
+    )
     args = parser.parse_args()
 
     # Validate config path
@@ -93,7 +97,7 @@ def main() -> None:
 
     try:
         pipeline.start()
-        pipeline.run(show_debug=args.debug, overlay=overlay)
+        pipeline.run(show_debug=args.debug, overlay=overlay, show_feed=args.show_feed)
     except Exception as exc:
         log.exception("Fatal error in pipeline: %s", exc)
         sys.exit(1)

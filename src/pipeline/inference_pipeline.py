@@ -183,7 +183,7 @@ class InferencePipeline:
     def stop(self) -> None:
         self._running = False
 
-    def run(self, show_debug: bool = False, overlay=None) -> None:
+    def run(self, show_debug: bool = False, overlay=None, show_feed: bool = False) -> None:
         """
         Main loop. Runs until stop() is called.
 
@@ -196,9 +196,19 @@ class InferencePipeline:
         overlay : OverlayWindow | None
             If provided, update_box() is called after every frame so the
             transparent overlay reflects the current lock state in real time.
+        show_feed : bool
+            If True, open a fullscreen cv2 window showing the capture card
+            feed with the red box drawn directly on the frame.  Press ESC
+            to quit.  Intended for use with --capture-card.
         """
         self._running = True
         prev_time = time.perf_counter()
+
+        _FEED_WIN = "UC4 Aim Assist — Feed"
+        if show_feed:
+            cv2.namedWindow(_FEED_WIN, cv2.WINDOW_NORMAL)
+            cv2.setWindowProperty(_FEED_WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            log.info("Feed window opened (fullscreen) — press ESC to quit.")
 
         _debug_dir: Optional[Path] = None
         _debug_frame_count = 0
@@ -291,7 +301,15 @@ class InferencePipeline:
                         lock_state == LockState.ENGAGED,
                     )
 
-                # ---- 11. Debug frames (saved to disk, no popup window) ----
+                # ---- 11. Feed window (capture card live view with box) ----
+                if show_feed:
+                    feed_frame = self._draw_feed(frame, lock_state)
+                    cv2.imshow(_FEED_WIN, feed_frame)
+                    if cv2.waitKey(1) & 0xFF == 27:  # ESC
+                        log.info("ESC pressed — stopping.")
+                        break
+
+                # ---- 12. Debug frames (saved to disk, no popup window) ----
                 if show_debug:
                     _debug_frame_count += 1
                     if _debug_frame_count % 10 == 0:
@@ -314,11 +332,20 @@ class InferencePipeline:
         except KeyboardInterrupt:
             log.info("KeyboardInterrupt — shutting down.")
         finally:
-            self._shutdown(show_debug)
+            self._shutdown(show_debug, show_feed)
 
     # ------------------------------------------------------------------
-    # Debug overlay
+    # Feed and debug overlays
     # ------------------------------------------------------------------
+
+    def _draw_feed(self, frame: np.ndarray, lock_state: LockState) -> np.ndarray:
+        """Minimal overlay for --show-feed: just the red box when ENGAGED."""
+        out = frame.copy()
+        locked_box = self._lock_sm.locked_box if self._lock_sm else None
+        if lock_state == LockState.ENGAGED and locked_box is not None:
+            x1, y1, x2, y2 = locked_box
+            cv2.rectangle(out, (x1, y1), (x2, y2), (0, 0, 255), 3)
+        return out
 
     def _draw_debug(
         self,
@@ -364,8 +391,11 @@ class InferencePipeline:
     # Shutdown
     # ------------------------------------------------------------------
 
-    def _shutdown(self, show_debug: bool) -> None:
+    def _shutdown(self, show_debug: bool, show_feed: bool = False) -> None:
         log.info("Shutting down pipeline…")
+        if show_feed:
+            cv2.destroyAllWindows()
+            cv2.waitKey(1)
         if self._capture:
             self._capture.stop()
         if self._ds_reader:
