@@ -202,7 +202,7 @@ class EnemyDetector:
         threshold and NMS.  Class filtering (enemy vs not) happens later
         in EnemyClassifier.
         """
-        if self._model is None:
+        if self._model is None and self._onnx_session is None:
             raise RuntimeError("Call load() before detect().")
         return self._run_inference(frame)
 
