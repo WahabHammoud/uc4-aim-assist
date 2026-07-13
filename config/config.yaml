@@ -8,8 +8,8 @@ detection:
   confidence_threshold: 0.45
   nms_threshold: 0.45
   device: "cuda:0"
-  input_size: [640, 640]
-  half_precision: true        # FP16 for TensorRT speed
+  input_size: [320, 320]      # 320x320 is ~4x faster than 640x640 on CPU
+  half_precision: true        # FP16 for TensorRT speed (ignored on CPU)
   # "finetuned"   = load model_path / fallback_model (default, live system)
   # "coco_person" = load yolov8n.pt COCO base weights, detect person class only
   detector_mode: "coco_person"
@@ -195,6 +195,13 @@ performance:
   profiler_log_interval_frames: 300   # Log summary every N frames (~5s@60fps)
   # CUDA stream priority for async inference
   cuda_stream_priority: -1            # -1 = high priority
+  # ── CPU optimisation ─────────────────────────────────────────────────────
+  # Process every Nth frame for detection (0 = every frame, 1 = every 2nd, …)
+  # At 6.5 FPS detection, skip=1 halves detection load → ~13 effective FPS
+  inference_skip_frames: 1
+  # Run YOLO+classify+filter+track in a background thread so the main loop
+  # never stalls waiting for inference.  Gives ~1.5–2× throughput on CPU.
+  threaded_inference: true
 
 logging:
   level: "INFO"                       # DEBUG / INFO / WARNING / ERROR

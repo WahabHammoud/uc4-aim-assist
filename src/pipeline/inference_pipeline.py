@@ -22,9 +22,10 @@ The loop runs until stop() is called or a keyboard interrupt is raised.
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -86,6 +87,13 @@ class InferencePipeline:
         self._frame_h  = self._cfg["capture"]["capture_height"]
         self._screen_cx = self._frame_w / 2.0
         self._screen_cy = self._frame_h / 2.0
+
+        # Threaded inference state (populated in start() when enabled)
+        self._infer_lock   = threading.Lock()
+        self._infer_event  = threading.Event()
+        self._infer_frame: Optional[np.ndarray] = None
+        self._infer_result: Optional[Tuple] = None   # (classified, enemies, tracked)
+        self._infer_thread: Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -178,6 +186,14 @@ class InferencePipeline:
                 "Virtual gamepad failed. Install ViGEm Bus Driver and vgamepad."
             )
 
+        perf_cfg = self._cfg.get("performance", {})
+        if perf_cfg.get("threaded_inference", False):
+            self._infer_thread = threading.Thread(
+                target=self._inference_worker, daemon=True, name="InferenceWorker"
+            )
+            self._infer_thread.start()
+            log.info("Threaded inference enabled — YOLO runs in background thread.")
+
         log.info("All subsystems ready. Entering main loop…")
 
     def stop(self) -> None:
@@ -218,6 +234,14 @@ class InferencePipeline:
             _debug_dir.mkdir(parents=True, exist_ok=True)
             log.info("Debug mode: saving every 10th frame to %s", _debug_dir)
 
+        perf_cfg     = self._cfg.get("performance", {})
+        _skip        = max(0, int(perf_cfg.get("inference_skip_frames", 0)))
+        _threaded    = self._infer_thread is not None
+        _frame_n     = 0
+        _last_classified: List   = []
+        _last_enemies:    List   = []
+        _last_tracked:    List   = []
+
         try:
             while self._running:
                 self._profiler.begin_frame()
@@ -232,21 +256,36 @@ class InferencePipeline:
                 prev_time = time.perf_counter()
                 dt = max(dt, 1e-4)
 
-                # ---- 2. Detection ----
-                with self._profiler.section("detection"):
-                    raw_dets = self._detector.detect(frame)
+                # ---- 2–5. Detection / classification / filter / tracking ----
+                _run_infer = (_frame_n % max(1, _skip + 1) == 0)
+                _frame_n  += 1
 
-                # ---- 3. Enemy classification (HSV marker) ----
-                with self._profiler.section("classification"):
-                    classified = self._classifier.classify(frame, raw_dets)
-
-                # ---- 4. Geometric filter ----
-                with self._profiler.section("filter"):
-                    enemies = self._filter.filter(classified, self._frame_w, self._frame_h)
-
-                # ---- 5. ByteTrack ----
-                with self._profiler.section("tracking"):
-                    tracked_enemies = self._tracker.update(enemies)
+                if _threaded:
+                    # Submit frame to background worker (non-blocking)
+                    if _run_infer:
+                        with self._infer_lock:
+                            self._infer_frame = frame
+                        self._infer_event.set()
+                    # Read latest result; fall back to last known on first frames
+                    with self._infer_lock:
+                        _result = self._infer_result
+                    if _result is not None:
+                        classified, enemies, tracked_enemies = _result
+                        _last_classified, _last_enemies, _last_tracked = classified, enemies, tracked_enemies
+                    else:
+                        classified, enemies, tracked_enemies = _last_classified, _last_enemies, _last_tracked
+                elif _run_infer:
+                    with self._profiler.section("detection"):
+                        raw_dets = self._detector.detect(frame)
+                    with self._profiler.section("classification"):
+                        classified = self._classifier.classify(frame, raw_dets)
+                    with self._profiler.section("filter"):
+                        enemies = self._filter.filter(classified, self._frame_w, self._frame_h)
+                    with self._profiler.section("tracking"):
+                        tracked_enemies = self._tracker.update(enemies)
+                    _last_classified, _last_enemies, _last_tracked = classified, enemies, tracked_enemies
+                else:
+                    classified, enemies, tracked_enemies = _last_classified, _last_enemies, _last_tracked
 
                 # ---- 6. Read physical controller ----
                 with self._profiler.section("controller_read"):
@@ -333,6 +372,41 @@ class InferencePipeline:
             log.info("KeyboardInterrupt — shutting down.")
         finally:
             self._shutdown(show_debug, show_feed)
+
+    # ------------------------------------------------------------------
+    # Background inference worker (threaded_inference mode)
+    # ------------------------------------------------------------------
+
+    def _inference_worker(self) -> None:
+        """
+        Background thread: picks up the latest frame, runs the full
+        detection→classify→filter→track pipeline, stores result for the
+        main loop to read.  Runs continuously until self._running is False.
+        """
+        log.info("InferenceWorker thread started.")
+        while self._running:
+            triggered = self._infer_event.wait(timeout=0.5)
+            if not triggered:
+                continue
+            self._infer_event.clear()
+
+            with self._infer_lock:
+                frame = self._infer_frame
+
+            if frame is None:
+                continue
+
+            try:
+                raw_dets   = self._detector.detect(frame)
+                classified = self._classifier.classify(frame, raw_dets)
+                enemies    = self._filter.filter(classified, self._frame_w, self._frame_h)
+                tracked    = self._tracker.update(enemies)
+                with self._infer_lock:
+                    self._infer_result = (classified, enemies, tracked)
+            except Exception as exc:
+                log.warning("InferenceWorker error: %s", exc)
+
+        log.info("InferenceWorker thread stopped.")
 
     # ------------------------------------------------------------------
     # Feed and debug overlays

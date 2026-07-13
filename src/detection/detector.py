@@ -16,12 +16,25 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
+import cv2
 import numpy as np
 import torch
 
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
+
+
+def _letterbox(img: np.ndarray, imgsz: int):
+    """Resize to square with grey padding. Returns (padded, ratio, (pad_x, pad_y))."""
+    h, w = img.shape[:2]
+    ratio = imgsz / max(h, w)
+    nw, nh = int(w * ratio), int(h * ratio)
+    resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
+    padded = np.full((imgsz, imgsz, 3), 114, dtype=np.uint8)
+    pad_x, pad_y = (imgsz - nw) // 2, (imgsz - nh) // 2
+    padded[pad_y:pad_y + nh, pad_x:pad_x + nw] = resized
+    return padded, ratio, (pad_x, pad_y)
 
 
 @dataclass
@@ -98,6 +111,8 @@ class EnemyDetector:
             if k in DetectorConfig.__dataclass_fields__
         })
         self._model = None
+        self._onnx_session = None
+        self._onnx_input_name: Optional[str] = None
         self._warmup_done = False
         self._device = torch.device(self._cfg.device if torch.cuda.is_available() else "cpu")
 
@@ -106,13 +121,29 @@ class EnemyDetector:
     # ------------------------------------------------------------------
 
     def load(self) -> None:
-        """Load model. Try TensorRT engine first, then PyTorch weights."""
+        """Load model. Supports ONNX (onnxruntime), TensorRT engine, and PyTorch weights."""
         from ultralytics import YOLO
 
         if self._cfg.detector_mode == "coco_person":
-            log.info("detector_mode=coco_person: loading yolov8n.pt base COCO weights")
-            self._model = YOLO("yolov8n.pt")
-            log.info("COCO yolov8n loaded.")
+            # Prefer ONNX if it exists alongside yolov8n.pt — faster on CPU
+            onnx_path = Path("models/yolov8n.onnx")
+            if onnx_path.exists():
+                self._load_onnx(str(onnx_path))
+            else:
+                log.info("detector_mode=coco_person: loading yolov8n.pt base COCO weights")
+                self._model = YOLO("yolov8n.pt")
+                log.info("COCO yolov8n loaded.")
+            return
+
+        # ONNX path: if model_path explicitly points to a .onnx file
+        if self._cfg.model_path.endswith(".onnx"):
+            onnx_file = Path(self._cfg.model_path)
+            if not onnx_file.exists():
+                raise FileNotFoundError(
+                    f"ONNX model not found: {onnx_file}. "
+                    "Run: python tools/export_onnx.py"
+                )
+            self._load_onnx(str(onnx_file))
             return
 
         engine_path = Path(self._cfg.model_path)
@@ -133,6 +164,19 @@ class EnemyDetector:
                 f"No model found. Expected engine at '{engine_path}' "
                 f"or PyTorch weights at '{fallback_path}'."
             )
+
+    def _load_onnx(self, path: str) -> None:
+        """Load ONNX model via onnxruntime (CPU only)."""
+        try:
+            import onnxruntime as ort
+        except ImportError:
+            raise ImportError(
+                "onnxruntime not installed. Run: pip install onnxruntime"
+            )
+        providers = ["CPUExecutionProvider"]
+        self._onnx_session = ort.InferenceSession(path, providers=providers)
+        self._onnx_input_name = self._onnx_session.get_inputs()[0].name
+        log.info("ONNX model loaded via onnxruntime (CPU): %s", path)
 
     def warmup(self, n_iters: int = 10) -> None:
         """Run dummy inference to warm up CUDA kernels and TensorRT calibration."""
@@ -163,6 +207,9 @@ class EnemyDetector:
         return self._run_inference(frame)
 
     def _run_inference(self, frame: np.ndarray) -> List[Detection]:
+        if self._onnx_session is not None:
+            return self._run_onnx_inference(frame)
+
         extra = {}
         if self._cfg.detector_mode == "coco_person":
             extra["classes"] = [0]   # COCO class 0 = person
@@ -196,3 +243,68 @@ class EnemyDetector:
             ))
 
         return detections
+
+    def _run_onnx_inference(self, frame: np.ndarray) -> List[Detection]:
+        """Run inference using onnxruntime session (CPU-optimised path)."""
+        orig_h, orig_w = frame.shape[:2]
+        imgsz = self._cfg.input_size[0]
+
+        # Letterbox resize + normalise
+        img, ratio, (pad_x, pad_y) = _letterbox(frame, imgsz)
+        img = img[:, :, ::-1].astype(np.float32) / 255.0   # BGR→RGB, [0,1]
+        img = np.transpose(img, (2, 0, 1))[np.newaxis]      # HWC→BCHW
+
+        output = self._onnx_session.run(None, {self._onnx_input_name: img})[0]
+        preds = output[0].T   # (N, 84)  — cx,cy,w,h + 80 class scores
+
+        boxes  = preds[:, :4]
+        scores = preds[:, 4:]
+
+        if self._cfg.detector_mode == "coco_person":
+            max_scores = scores[:, 0]          # class 0 = person
+            class_ids  = np.zeros(len(preds), dtype=int)
+        else:
+            max_scores = scores.max(axis=1)
+            class_ids  = scores.argmax(axis=1)
+
+        mask = max_scores >= self._cfg.confidence_threshold
+        boxes      = boxes[mask]
+        max_scores = max_scores[mask]
+        class_ids  = class_ids[mask]
+
+        if len(boxes) == 0:
+            return []
+
+        # cx,cy,w,h → x1,y1,x2,y2 in imgsz space
+        x1 = boxes[:, 0] - boxes[:, 2] / 2
+        y1 = boxes[:, 1] - boxes[:, 3] / 2
+        x2 = boxes[:, 0] + boxes[:, 2] / 2
+        y2 = boxes[:, 1] + boxes[:, 3] / 2
+
+        # Undo letterbox → original frame coords
+        x1 = (x1 - pad_x) / ratio
+        y1 = (y1 - pad_y) / ratio
+        x2 = (x2 - pad_x) / ratio
+        y2 = (y2 - pad_y) / ratio
+
+        # NMS
+        xywh = np.stack([x1, y1, x2 - x1, y2 - y1], axis=1).tolist()
+        indices = cv2.dnn.NMSBoxes(
+            xywh, max_scores.tolist(),
+            self._cfg.confidence_threshold, self._cfg.nms_threshold,
+        )
+        if len(indices) == 0:
+            return []
+
+        indices = np.array(indices).flatten()
+        return [
+            Detection(
+                x1=float(np.clip(x1[i], 0, orig_w)),
+                y1=float(np.clip(y1[i], 0, orig_h)),
+                x2=float(np.clip(x2[i], 0, orig_w)),
+                y2=float(np.clip(y2[i], 0, orig_h)),
+                confidence=float(max_scores[i]),
+                class_id=int(class_ids[i]),
+            )
+            for i in indices
+        ]

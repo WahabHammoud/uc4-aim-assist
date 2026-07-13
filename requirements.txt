@@ -41,6 +41,9 @@ pygetwindow>=0.0.9          # overlay window position tracking
 # Capture card
 cv2-enumerate-cameras>=0.1.17  # list UVC devices by name (find_capture_device.py)
 
+# CPU inference
+onnxruntime>=1.17.0             # fast CPU inference for exported ONNX models
+
 # Config
 PyYAML>=6.0.1
 
