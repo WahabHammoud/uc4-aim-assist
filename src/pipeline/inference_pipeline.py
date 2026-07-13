@@ -186,14 +186,6 @@ class InferencePipeline:
                 "Virtual gamepad failed. Install ViGEm Bus Driver and vgamepad."
             )
 
-        perf_cfg = self._cfg.get("performance", {})
-        if perf_cfg.get("threaded_inference", False):
-            self._infer_thread = threading.Thread(
-                target=self._inference_worker, daemon=True, name="InferenceWorker"
-            )
-            self._infer_thread.start()
-            log.info("Threaded inference enabled — YOLO runs in background thread.")
-
         log.info("All subsystems ready. Entering main loop…")
 
     def stop(self) -> None:
@@ -220,6 +212,17 @@ class InferencePipeline:
         self._running = True
         prev_time = time.perf_counter()
 
+        # Start inference worker NOW — self._running must be True before the
+        # thread enters its while loop, otherwise it exits immediately.
+        perf_cfg  = self._cfg.get("performance", {})
+        _threaded = perf_cfg.get("threaded_inference", False)
+        if _threaded:
+            self._infer_thread = threading.Thread(
+                target=self._inference_worker, daemon=True, name="InferenceWorker"
+            )
+            self._infer_thread.start()
+            log.info("Threaded inference enabled — YOLO runs in background thread.")
+
         _FEED_WIN = "UC4 Aim Assist — Feed"
         if show_feed:
             cv2.namedWindow(_FEED_WIN, cv2.WINDOW_NORMAL)
@@ -234,9 +237,7 @@ class InferencePipeline:
             _debug_dir.mkdir(parents=True, exist_ok=True)
             log.info("Debug mode: saving every 10th frame to %s", _debug_dir)
 
-        perf_cfg     = self._cfg.get("performance", {})
         _skip        = max(0, int(perf_cfg.get("inference_skip_frames", 0)))
-        _threaded    = self._infer_thread is not None
         _frame_n     = 0
         _last_classified: List   = []
         _last_enemies:    List   = []
