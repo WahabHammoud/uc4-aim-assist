@@ -179,8 +179,8 @@ class EnemyDetector:
         log.info("ONNX model loaded via onnxruntime (CPU): %s", path)
 
     def warmup(self, n_iters: int = 10) -> None:
-        """Run dummy inference to warm up CUDA kernels and TensorRT calibration."""
-        if self._model is None:
+        """Run dummy inference to warm up model (works for PyTorch, TensorRT, and ONNX)."""
+        if self._model is None and self._onnx_session is None:
             raise RuntimeError("Call load() before warmup().")
         h, w = self._cfg.input_size
         dummy = np.zeros((h, w, 3), dtype=np.uint8)
