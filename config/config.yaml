@@ -5,7 +5,7 @@
 detection:
   model_path: "models/yolov8n.onnx"            # ONNX (CPU, onnxruntime) — run tools/export_onnx.py first
   fallback_model: "models/training/enemy_detector/weights/best.pt"   # PyTorch fallback if no engine
-  confidence_threshold: 0.45
+  confidence_threshold: 0.35
   nms_threshold: 0.45
   device: "cuda:0"
   input_size: [320, 320]      # 320x320 is ~4x faster than 640x640 on CPU
@@ -44,9 +44,9 @@ object_filter:
   # ── Size-adjusted confidence (close-range detections) ──────────────────
   # Large, close-range boxes are inherently less certain (partial occlusion,
   # motion blur) — relax the confidence requirement for them specifically.
-  conf_threshold: 0.55                # Standard confidence floor
+  conf_threshold: 0.35                # Standard confidence floor
   large_box_area_fraction: 0.15       # Boxes above this fraction of frame area...
-  large_box_conf_threshold: 0.40      # ...only need this confidence instead
+  large_box_conf_threshold: 0.25      # ...only need this confidence instead
   # ── Self-player exclusion (Fix A) ──────────────────────────────────────
   # In third-person view the local character always occupies the lower-centre
   # region.  Any detection whose bbox CENTRE falls inside this rectangle is
@@ -89,14 +89,14 @@ target_lock:
   # An enemy must be the ONLY detected enemy within strict_radius_px of screen
   # centre AND have been stably tracked for min_stable_frames before a box
   # is shown.  This prevents boxes on bystanders or brief false detections.
-  strict_radius_px: 600               # Circular engagement zone (px from screen centre)
+  strict_radius_px: 900               # Circular engagement zone (px from screen centre)
   strict_radius_px_lowres: 125       # Lowres override: 17% of 640×358 diagonal (matches 1080p proportion)
   min_stable_frames: 1                # Track must be this old before it can be engaged
   engagement_hold_frames: 45          # Frames to hold box after engagement gate closes
   # Live system: R2 must exceed this threshold to count as "actively firing"
   r2_activation_threshold: 0.30
   # ── Kalman predictor (still used for PID aim-point smoothing) ────────────
-  kalman_max_predict_frames: 50       # Max frames to predict before releasing lock
+  kalman_max_predict_frames: 80       # Max frames to predict before releasing lock
   reacquire_distance_px: 80           # Max px from Kalman prediction to reacquire
   # ── Self-player belt-and-suspenders (Fix C) ────────────────────────────
   # Belt-and-suspenders: even if a detection slips past Fix A/B, TargetLock
@@ -120,7 +120,7 @@ target_lock:
   # ── Lock persistence and hysteresis (Prompt 3) ──────────────────────────
   # Frames the locked track can vanish before ENGAGED releases to NO_BOX.
   # During this window the box stays ENGAGED, driven by Kalman prediction.
-  lock_release_frames: 45
+  lock_release_frames: 60
   # Re-acquisition from NO_BOX requires higher confidence and proximity to
   # the last confirmed position — prevents snapping to a different enemy.
   min_reacq_confidence: 0.65
