@@ -20,7 +20,8 @@ class CaptureCardCapture:
     """
 
     def __init__(self, config):
-        self._device_index = config.get("capture_card_index", config.get("device_index", 0))
+        # -1 = auto-detect: scan devices and pick the first that gives 1920x1080
+        self._device_index = config.get("capture_card_index", config.get("device_index", -1))
         self._width  = config.get("capture_card_width",  config.get("width",  1920))
         self._height = config.get("capture_card_height", config.get("height", 1080))
         self._cap    = None
@@ -34,6 +35,10 @@ class CaptureCardCapture:
     # ------------------------------------------------------------------
 
     def start(self):
+        if self._device_index == -1:
+            log.info("Auto-detecting capture card device (scanning 0–9 for %dx%d)…", self._width, self._height)
+            self._device_index = self._auto_detect_device()
+            log.info("Auto-detected capture card on device index %d", self._device_index)
         log.info("Opening capture card device %d via DirectShow…", self._device_index)
         self._cap = self._open_device()
 
@@ -83,6 +88,33 @@ class CaptureCardCapture:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _auto_detect_device(self) -> int:
+        """Scan device indices 0–9 and return the first that delivers a 1920×1080 frame."""
+        for idx in range(10):
+            try:
+                cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+                if not cap.isOpened():
+                    cap.release()
+                    continue
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUY2"))
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+                cap.set(cv2.CAP_PROP_FPS, 60)
+                ret, frame = cap.read()
+                actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                cap.release()
+                if ret and frame is not None and actual_w == self._width:
+                    log.info("Auto-detect: device %d is %dx%d — selected.", idx, self._width, self._height)
+                    return idx
+                log.debug("Auto-detect: device %d skipped (w=%d, ret=%s)", idx, actual_w, ret)
+            except Exception as exc:
+                log.debug("Auto-detect: device %d error: %s", idx, exc)
+        raise RuntimeError(
+            f"Auto-detect failed: no device in range 0–9 delivers {self._width}×{self._height}. "
+            "Check HDMI cable and USB 3.0 connection. "
+            "Run tools/find_capture_device.py for diagnostics."
+        )
 
     def _open_device(self) -> cv2.VideoCapture:
         """Open device with DirectShow, set FOURCC+resolution, log negotiated values."""

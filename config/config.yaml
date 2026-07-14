@@ -178,7 +178,7 @@ capture:
   target_fps: 60
   capture_width: 1920
   capture_height: 1080
-  capture_card_index: 0               # UVC device index (run tools/find_capture_device.py)
+  capture_card_index: -1              # -1 = auto-detect (scan 0–9 for 1920×1080); or set explicitly
   capture_card_width: 1920            # KASTWAVE AvedioLink: 1080P@60FPS
   capture_card_height: 1080
   # If Chiaki is windowed at a specific position (set to null for auto-detect)

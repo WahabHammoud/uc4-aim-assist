@@ -43,6 +43,10 @@ def main() -> None:
         help="Capture card device index (default: 0). Run tools/find_capture_device.py to list devices."
     )
     parser.add_argument(
+        "--auto-detect", action="store_true",
+        help="Auto-detect capture card device index by scanning 0–9 for 1920×1080 (use with --capture-card)"
+    )
+    parser.add_argument(
         "--show-feed", action="store_true",
         help="Show capture card feed in a fullscreen window with the red box drawn on frame (use with --capture-card)"
     )
@@ -77,11 +81,15 @@ def main() -> None:
 
     if args.capture_card:
         cfg.setdefault("capture", {})["mode"] = "capture_card"
-        cfg["capture"]["capture_card_index"] = args.device_index
-        log.info(
-            "--capture-card active: using UVC capture card on device index %d.",
-            args.device_index,
-        )
+        if args.auto_detect:
+            cfg["capture"]["capture_card_index"] = -1
+            log.info("--capture-card --auto-detect active: will scan devices 0–9 for 1920×1080.")
+        else:
+            cfg["capture"]["capture_card_index"] = args.device_index
+            log.info(
+                "--capture-card active: using UVC capture card on device index %d.",
+                args.device_index,
+            )
 
     # Pass the (possibly patched) config dict directly so in-memory patches
     # are not lost when InferencePipeline re-reads the YAML from disk.
