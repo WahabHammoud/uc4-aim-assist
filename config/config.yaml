@@ -5,7 +5,7 @@
 detection:
   model_path: "models/yolov8n.onnx"            # ONNX (CPU, onnxruntime) — run tools/export_onnx.py first
   fallback_model: "models/training/enemy_detector/weights/best.pt"   # PyTorch fallback if no engine
-  confidence_threshold: 0.35
+  confidence_threshold: 0.25
   nms_threshold: 0.45
   device: "cuda:0"
   input_size: [320, 320]      # 320x320 is ~4x faster than 640x640 on CPU
@@ -36,17 +36,17 @@ object_filter:
     - [0.00, 0.00, 1.00, 0.08]       # Top bar
     - [0.00, 0.88, 1.00, 1.00]       # Bottom bar (health, ammo)
     - [0.00, 0.00, 0.15, 0.25]       # Top-left (minimap area)
-  min_bbox_area_px: 400               # Smaller = noise
-  max_bbox_area_px: 250000            # Larger = background element
-  max_bbox_area_fraction: 0.45        # Close-range: allow boxes up to 45% of frame area
-  min_aspect_ratio: 0.40              # bbox height/width (very wide = not a person)
-  max_aspect_ratio: 5.00              # Very tall = flag/pole, reject
+  min_bbox_area_px: 10                # Smaller = noise (very permissive for partial/head detections)
+  max_bbox_area_px: 1900000           # Larger = background element
+  max_bbox_area_fraction: 0.90        # Close-range: allow boxes up to 90% of frame area
+  min_aspect_ratio: 0.10              # allow tall thin boxes (head only)
+  max_aspect_ratio: 10.00             # allow any shape
   # ── Size-adjusted confidence (close-range detections) ──────────────────
   # Large, close-range boxes are inherently less certain (partial occlusion,
   # motion blur) — relax the confidence requirement for them specifically.
-  conf_threshold: 0.35                # Standard confidence floor
+  conf_threshold: 0.25                # Standard confidence floor
   large_box_area_fraction: 0.15       # Boxes above this fraction of frame area...
-  large_box_conf_threshold: 0.25      # ...only need this confidence instead
+  large_box_conf_threshold: 0.20      # ...only need this confidence instead
   # ── Self-player exclusion (Fix A) ──────────────────────────────────────
   # In third-person view the local character always occupies the lower-centre
   # region.  Any detection whose bbox CENTRE falls inside this rectangle is
@@ -89,7 +89,7 @@ target_lock:
   # An enemy must be the ONLY detected enemy within strict_radius_px of screen
   # centre AND have been stably tracked for min_stable_frames before a box
   # is shown.  This prevents boxes on bystanders or brief false detections.
-  strict_radius_px: 900               # Circular engagement zone (px from screen centre)
+  strict_radius_px: 1200              # Circular engagement zone (px from screen centre)
   strict_radius_px_lowres: 125       # Lowres override: 17% of 640×358 diagonal (matches 1080p proportion)
   min_stable_frames: 1                # Track must be this old before it can be engaged
   engagement_hold_frames: 45          # Frames to hold box after engagement gate closes

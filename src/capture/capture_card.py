@@ -57,6 +57,11 @@ class CaptureCardCapture:
                 "Check HDMI cable is connected to PS5 and capture card input."
             )
 
+        # Flush stale frames buffered during device open — reduces lag
+        log.info("Flushing capture card buffer (10 frames)…")
+        for _ in range(10):
+            self._cap.read()
+
         with self._lock:
             self._frame = first_frame
 
