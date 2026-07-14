@@ -3,7 +3,7 @@
 # ============================================================
 
 detection:
-  model_path: "models/enemy_detector.engine"   # TensorRT engine (primary)
+  model_path: "models/yolov8n.onnx"            # ONNX (CPU, onnxruntime) — run tools/export_onnx.py first
   fallback_model: "models/training/enemy_detector/weights/best.pt"   # PyTorch fallback if no engine
   confidence_threshold: 0.45
   nms_threshold: 0.45
