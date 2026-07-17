@@ -137,6 +137,10 @@ class TargetLock:
         self._last_known_cx: Optional[float] = None
         self._last_known_cy: Optional[float] = None
 
+        # EMA smoothing on displayed box coordinates (reduces per-frame jitter)
+        self._ema_box: Optional[Tuple[float, float, float, float]] = None
+        self._ema_alpha: float = 0.4
+
         # Track-age counter: how many frames each track_id has been seen
         self._track_age: Dict[int, int] = defaultdict(int)
 
@@ -309,8 +313,26 @@ class TargetLock:
                         self._dist(cand),
                         self._track_age.get(cand.track_id, 0),
                     )
+
+                # EMA smoothing on the displayed box — damps per-frame jitter
+                # from YOLO bbox noise without affecting Kalman/PID (which use
+                # the raw clamped coordinates below).
+                x1_s = float(clamped[0])
+                y1_s = float(clamped[1])
+                x2_s = float(clamped[2])
+                y2_s = float(clamped[3])
+                if self._ema_box is None:
+                    self._ema_box = (x1_s, y1_s, x2_s, y2_s)
+                else:
+                    ex1, ey1, ex2, ey2 = self._ema_box
+                    x1_s = self._ema_alpha * x1_s + (1 - self._ema_alpha) * ex1
+                    y1_s = self._ema_alpha * y1_s + (1 - self._ema_alpha) * ey1
+                    x2_s = self._ema_alpha * x2_s + (1 - self._ema_alpha) * ex2
+                    y2_s = self._ema_alpha * y2_s + (1 - self._ema_alpha) * ey2
+                    self._ema_box = (x1_s, y1_s, x2_s, y2_s)
+
                 self._locked_id  = cand.track_id
-                self._locked_box = clamped
+                self._locked_box = (int(x1_s), int(y1_s), int(x2_s), int(y2_s))
                 self._state      = LockState.ENGAGED
                 self._hold_cnt   = self._hold
                 self._predict_frames = 0
@@ -448,6 +470,7 @@ class TargetLock:
         self._release_countdown = 0
         self._smooth_w          = None
         self._smooth_h          = None
+        self._ema_box           = None
         self._kalman.reset()
 
     # ── Properties ───────────────────────────────────────────────────────────
