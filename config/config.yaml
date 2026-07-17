@@ -209,6 +209,8 @@ hud_detector:
   max_area: 2000                      # px2 - maximum red contour area (filters large UI elements)
   min_tag_aspect: 2.0                 # tag width/height ratio — name tags are wide horizontal strips
   max_tag_height_px: 25               # tags taller than this are health bars / dialog boxes, not name tags
+  hud_exclusion_zones: true           # reject detections whose centre falls in fixed red-UI screen regions
+  person_proximity_px: 200            # discard HUD tag if no YOLO detection within this many px below it
 
 logging:
   level: "INFO"                       # DEBUG / INFO / WARNING / ERROR

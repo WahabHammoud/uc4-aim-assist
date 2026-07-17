@@ -285,7 +285,7 @@ class InferencePipeline:
                         raw_dets = self._detector.detect(frame)
                     with self._profiler.section("classification"):
                         classified = self._classifier.classify(frame, raw_dets)
-                        hud_dets = self._hud_detector.detect(frame) if self._hud_detector else []
+                        hud_dets = self._hud_detector.detect(frame, raw_dets) if self._hud_detector else []
                         if hud_dets:
                             classified = list(classified) + hud_dets
                     with self._profiler.section("filter"):
