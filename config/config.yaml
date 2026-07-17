@@ -203,6 +203,13 @@ performance:
   # never stalls waiting for inference.  Gives ~1.5–2× throughput on CPU.
   threaded_inference: true
 
+hud_detector:
+  enabled: true
+  min_area: 20                        # px2 - minimum red contour area (filters single pixels / noise)
+  max_area: 2000                      # px2 - maximum red contour area (filters large UI elements)
+  min_tag_aspect: 2.0                 # tag width/height ratio — name tags are wide horizontal strips
+  max_tag_height_px: 25               # tags taller than this are health bars / dialog boxes, not name tags
+
 logging:
   level: "INFO"                       # DEBUG / INFO / WARNING / ERROR
   log_to_file: true

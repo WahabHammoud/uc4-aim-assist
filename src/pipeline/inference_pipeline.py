@@ -38,6 +38,7 @@ from src.control.virtual_gamepad import VirtualGamepad
 from src.detection.detector import EnemyDetector
 from src.detection.enemy_classifier import EnemyClassifier
 from src.detection.object_filter import ObjectFilter
+from src.detection.uc4_hud_detector import UC4HUDDetector
 from src.tracking.bytetrack_wrapper import ByteTrackWrapper
 from src.tracking.target_lock import LockState, TargetLock
 from src.utils.logger import get_logger
@@ -69,15 +70,16 @@ class InferencePipeline:
             log.info("Configuration loaded from %s", config_path)
 
         # Subsystem references
-        self._capture:    Optional[ChiakiCapture]    = None
-        self._detector:   Optional[EnemyDetector]    = None
-        self._classifier: Optional[EnemyClassifier]  = None
-        self._filter:     Optional[ObjectFilter]     = None
-        self._tracker:    Optional[ByteTrackWrapper] = None
-        self._lock_sm:    Optional[TargetLock]       = None
-        self._pid:        Optional[DualAxisPID]      = None
-        self._ds_reader:  Optional[DualSenseReader]  = None
-        self._vgamepad:   Optional[VirtualGamepad]   = None
+        self._capture:      Optional[ChiakiCapture]    = None
+        self._detector:     Optional[EnemyDetector]    = None
+        self._classifier:   Optional[EnemyClassifier]  = None
+        self._filter:       Optional[ObjectFilter]     = None
+        self._hud_detector: Optional[UC4HUDDetector]   = None
+        self._tracker:      Optional[ByteTrackWrapper] = None
+        self._lock_sm:      Optional[TargetLock]       = None
+        self._pid:          Optional[DualAxisPID]      = None
+        self._ds_reader:    Optional[DualSenseReader]  = None
+        self._vgamepad:     Optional[VirtualGamepad]   = None
         self._profiler    = FrameProfiler(
             log_interval_frames=self._cfg.get("performance", {})
                                          .get("profiler_log_interval_frames", 300)
@@ -145,8 +147,11 @@ class InferencePipeline:
         self._detector.warmup(n_iters=self._cfg.get("capture", {}).get("warmup_frames", 30))
 
         # 3. Classification + Filtering
-        self._classifier = EnemyClassifier(self._cfg["enemy_classification"])
-        self._filter     = ObjectFilter(self._cfg["object_filter"])
+        self._classifier    = EnemyClassifier(self._cfg["enemy_classification"])
+        self._filter        = ObjectFilter(self._cfg["object_filter"])
+        self._hud_detector  = UC4HUDDetector(self._cfg.get("hud_detector", {}))
+        if self._cfg.get("hud_detector", {}).get("enabled", True):
+            log.info("UC4 HUD detector enabled — supplementing YOLO with red name-tag detection.")
 
         # 4. Tracker
         self._tracker = ByteTrackWrapper(self._cfg["tracking"])
@@ -280,6 +285,9 @@ class InferencePipeline:
                         raw_dets = self._detector.detect(frame)
                     with self._profiler.section("classification"):
                         classified = self._classifier.classify(frame, raw_dets)
+                        hud_dets = self._hud_detector.detect(frame) if self._hud_detector else []
+                        if hud_dets:
+                            classified = list(classified) + hud_dets
                     with self._profiler.section("filter"):
                         enemies = self._filter.filter(classified, self._frame_w, self._frame_h)
                     with self._profiler.section("tracking"):
@@ -400,6 +408,9 @@ class InferencePipeline:
             try:
                 raw_dets   = self._detector.detect(frame)
                 classified = self._classifier.classify(frame, raw_dets)
+                hud_dets   = self._hud_detector.detect(frame) if self._hud_detector else []
+                if hud_dets:
+                    classified = list(classified) + hud_dets
                 enemies    = self._filter.filter(classified, self._frame_w, self._frame_h)
                 tracked    = self._tracker.update(enemies)
                 with self._infer_lock:
