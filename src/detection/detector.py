@@ -125,10 +125,14 @@ class EnemyDetector:
         from ultralytics import YOLO
 
         if self._cfg.detector_mode == "coco_person":
-            # Prefer ONNX if it exists alongside yolov8n.pt — faster on CPU
-            onnx_path = Path("models/yolov8n.onnx")
-            if onnx_path.exists():
-                self._load_onnx(str(onnx_path))
+            # Respect model_path when it points to an ONNX file (e.g. yolov8n_960.onnx);
+            # otherwise fall back to the legacy models/yolov8n.onnx, then PyTorch weights.
+            candidate_onnx = (
+                Path(self._cfg.model_path) if self._cfg.model_path.endswith(".onnx")
+                else Path("models/yolov8n.onnx")
+            )
+            if candidate_onnx.exists():
+                self._load_onnx(str(candidate_onnx))
             else:
                 log.info("detector_mode=coco_person: loading yolov8n.pt base COCO weights")
                 self._model = YOLO("yolov8n.pt")

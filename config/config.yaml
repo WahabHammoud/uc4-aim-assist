@@ -3,12 +3,12 @@
 # ============================================================
 
 detection:
-  model_path: "models/yolov8n.onnx"            # ONNX (CPU, onnxruntime) — run tools/export_onnx.py first
+  model_path: "models/yolov8n_960.onnx"        # ONNX (CPU, onnxruntime) — run tools/export_onnx.py --imgsz 960
   fallback_model: "models/training/enemy_detector/weights/best.pt"   # PyTorch fallback if no engine
   confidence_threshold: 0.25
   nms_threshold: 0.45
   device: "cuda:0"
-  input_size: [320, 320]      # 320x320 is ~4x faster than 640x640 on CPU
+  input_size: [960, 960]      # 960x960 — far enemy detection; compensate with inference_skip_frames: 2
   half_precision: true        # FP16 for TensorRT speed (ignored on CPU)
   # "finetuned"   = load model_path / fallback_model (default, live system)
   # "coco_person" = load yolov8n.pt COCO base weights, detect person class only
@@ -198,7 +198,7 @@ performance:
   # ── CPU optimisation ─────────────────────────────────────────────────────
   # Process every Nth frame for detection (0 = every frame, 1 = every 2nd, …)
   # At 6.5 FPS detection, skip=1 halves detection load → ~13 effective FPS
-  inference_skip_frames: 1
+  inference_skip_frames: 2    # run YOLO every 3rd frame (skip=2 → % 3 == 0); compensates for 960px cost
   # Run YOLO+classify+filter+track in a background thread so the main loop
   # never stalls waiting for inference.  Gives ~1.5–2× throughput on CPU.
   threaded_inference: true

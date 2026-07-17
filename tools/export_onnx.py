@@ -28,14 +28,14 @@ def main():
     export_path = model.export(format="onnx", imgsz=args.imgsz, opset=12, simplify=True)
     print(f"Exported to: {export_path}")
 
-    dest = out_dir / "yolov8n.onnx"
     import shutil
+    dest = out_dir / f"yolov8n_{args.imgsz}.onnx"
     shutil.copy(export_path, dest)
     print(f"Copied to: {dest}")
     print()
     print("To use in config.yaml, set:")
     print("  detection:")
-    print(f"    model_path: 'models/yolov8n.onnx'")
+    print(f"    model_path: 'models/yolov8n_{args.imgsz}.onnx'")
     print(f"    input_size: [{args.imgsz}, {args.imgsz}]")
     print("    detector_mode: 'coco_person'")
 
