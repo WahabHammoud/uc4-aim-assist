@@ -3,16 +3,16 @@
 # ============================================================
 
 detection:
-  model_path: "models/yolov8n_960.onnx"        # ONNX (CPU, onnxruntime) — run tools/export_onnx.py --imgsz 960
+  model_path: "models/uc4_enemy_v2_final.onnx"  # Custom UC4 model (mAP50=0.981). Run tools/export_tensorrt.py for .engine
   fallback_model: "models/training/enemy_detector/weights/best.pt"   # PyTorch fallback if no engine
-  confidence_threshold: 0.25
+  confidence_threshold: 0.55
   nms_threshold: 0.45
   device: "cuda:0"
-  input_size: [960, 960]      # 960x960 — far enemy detection; compensate with inference_skip_frames: 2
+  input_size: [640, 640]      # 640x640 matches training resolution of uc4_enemy_v2_final
   half_precision: true        # FP16 for TensorRT speed (ignored on CPU)
   # "finetuned"   = load model_path / fallback_model (default, live system)
   # "coco_person" = load yolov8n.pt COCO base weights, detect person class only
-  detector_mode: "coco_person"
+  detector_mode: "finetuned"
 
 enemy_classification:
   # Red marker detection (enemy)
@@ -173,7 +173,7 @@ controller:
   virtual_gamepad_type: "ds4"
 
 capture:
-  mode: "chiaki"                      # "chiaki" (screen capture) or "capture_card" (UVC)
+  mode: "capture_card"                # "chiaki" (screen capture) or "capture_card" (UVC)
   window_title: "Chiaki"              # Partial match of Chiaki window title
   target_fps: 60
   capture_width: 1920
@@ -198,7 +198,7 @@ performance:
   # ── CPU optimisation ─────────────────────────────────────────────────────
   # Process every Nth frame for detection (0 = every frame, 1 = every 2nd, …)
   # At 6.5 FPS detection, skip=1 halves detection load → ~13 effective FPS
-  inference_skip_frames: 2    # run YOLO every 3rd frame (skip=2 → % 3 == 0); compensates for 960px cost
+  inference_skip_frames: 0    # 0 = every frame; GPU (RTX 5060) is fast enough — no skipping needed
   # Run YOLO+classify+filter+track in a background thread so the main loop
   # never stalls waiting for inference.  Gives ~1.5–2× throughput on CPU.
   threaded_inference: true

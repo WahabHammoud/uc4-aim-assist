@@ -139,48 +139,59 @@ class EnemyDetector:
                 log.info("COCO yolov8n loaded.")
             return
 
-        # ONNX path: if model_path explicitly points to a .onnx file
-        if self._cfg.model_path.endswith(".onnx"):
-            onnx_file = Path(self._cfg.model_path)
-            if not onnx_file.exists():
-                raise FileNotFoundError(
-                    f"ONNX model not found: {onnx_file}. "
-                    "Run: python tools/export_onnx.py"
-                )
-            self._load_onnx(str(onnx_file))
-            return
-
-        engine_path = Path(self._cfg.model_path)
+        # Finetuned mode: TensorRT engine → ONNX (CUDA/CPU) → PyTorch weights
+        model_p = Path(self._cfg.model_path)
         fallback_path = Path(self._cfg.fallback_model)
 
+        # Derive engine path: model.onnx → model.engine, model.engine → itself
+        if model_p.suffix == ".onnx":
+            engine_path = model_p.with_suffix(".engine")
+            onnx_path: Optional[Path] = model_p
+        elif model_p.suffix == ".engine":
+            engine_path = model_p
+            onnx_path = None
+        else:
+            engine_path = model_p.with_name(model_p.stem + ".engine")
+            onnx_path = None
+
         if engine_path.exists():
-            log.info("Loading TensorRT engine: %s", engine_path)
+            log.info("Loading TensorRT engine [provider: TensorRT]: %s", engine_path)
             self._model = YOLO(str(engine_path), task="detect")
             log.info("TensorRT engine loaded.")
+        elif onnx_path and onnx_path.exists():
+            self._load_onnx(str(onnx_path))
         elif fallback_path.exists():
             log.warning(
-                "Engine not found at %s — loading PyTorch weights: %s",
-                engine_path, fallback_path,
+                "No engine/ONNX found — loading PyTorch weights [provider: CPU/CUDA]: %s",
+                fallback_path,
             )
             self._model = YOLO(str(fallback_path))
         else:
             raise FileNotFoundError(
-                f"No model found. Expected engine at '{engine_path}' "
-                f"or PyTorch weights at '{fallback_path}'."
+                f"No model found. Tried engine={engine_path}, "
+                f"onnx={onnx_path}, pt={fallback_path}. "
+                "Run: python tools/export_tensorrt.py"
             )
 
     def _load_onnx(self, path: str) -> None:
-        """Load ONNX model via onnxruntime (CPU only)."""
+        """Load ONNX model via onnxruntime (CUDAExecutionProvider if available, else CPU)."""
         try:
             import onnxruntime as ort
         except ImportError:
             raise ImportError(
-                "onnxruntime not installed. Run: pip install onnxruntime"
+                "onnxruntime not installed. Run: pip install onnxruntime-gpu"
             )
-        providers = ["CPUExecutionProvider"]
+        available = ort.get_available_providers()
+        if "CUDAExecutionProvider" in available:
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            log.info("ONNX provider: CUDAExecutionProvider")
+        else:
+            providers = ["CPUExecutionProvider"]
+            log.info("ONNX provider: CPUExecutionProvider (CUDA not available — install onnxruntime-gpu)")
         self._onnx_session = ort.InferenceSession(path, providers=providers)
         self._onnx_input_name = self._onnx_session.get_inputs()[0].name
-        log.info("ONNX model loaded via onnxruntime (CPU): %s", path)
+        actual = self._onnx_session.get_providers()[0]
+        log.info("ONNX model loaded [%s]: %s", actual, path)
 
     def warmup(self, n_iters: int = 10) -> None:
         """Run dummy inference to warm up model (works for PyTorch, TensorRT, and ONNX)."""
@@ -259,15 +270,18 @@ class EnemyDetector:
         img = np.transpose(img, (2, 0, 1))[np.newaxis]      # HWC→BCHW
 
         output = self._onnx_session.run(None, {self._onnx_input_name: img})[0]
-        preds = output[0].T   # (N, 84)  — cx,cy,w,h + 80 class scores
+        preds = output[0].T   # (N, C) — cx,cy,w,h + class scores
+        boxes = preds[:, :4]
 
-        boxes  = preds[:, :4]
-        scores = preds[:, 4:]
-
-        if self._cfg.detector_mode == "coco_person":
-            max_scores = scores[:, 0]          # class 0 = person
+        # Handle both model shapes:
+        #   COCO / coco_person: (N, 84) — col 4 = person confidence
+        #   Custom single-class: (N, 5)  — col 4 = single confidence
+        #   Multi-class finetuned: (N, 84+) — argmax over cols 4+
+        if preds.shape[1] <= 5 or self._cfg.detector_mode == "coco_person":
+            max_scores = preds[:, 4]
             class_ids  = np.zeros(len(preds), dtype=int)
         else:
+            scores     = preds[:, 4:]
             max_scores = scores.max(axis=1)
             class_ids  = scores.argmax(axis=1)
 
