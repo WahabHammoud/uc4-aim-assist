@@ -408,7 +408,7 @@ class InferencePipeline:
             try:
                 raw_dets   = self._detector.detect(frame)
                 classified = self._classifier.classify(frame, raw_dets)
-                hud_dets   = self._hud_detector.detect(frame) if self._hud_detector else []
+                hud_dets   = self._hud_detector.detect(frame, raw_dets) if self._hud_detector else []
                 if hud_dets:
                     classified = list(classified) + hud_dets
                 enemies    = self._filter.filter(classified, self._frame_w, self._frame_h)

@@ -79,7 +79,15 @@ class VirtualGamepad:
             self._connected = True
             return True
         except Exception as exc:
-            log.error("Failed to create virtual gamepad: %s", exc)
+            msg = str(exc).lower()
+            if any(kw in msg for kw in ("vigem", "file not found", "winerror 2", "cannot find")):
+                log.error(
+                    "ViGEm Bus Driver not installed (or wrong version). "
+                    "Download from: https://github.com/nefarius/ViGEmBus/releases "
+                    "Then run: pip install vgamepad"
+                )
+            else:
+                log.error("Failed to create virtual gamepad: %s", exc)
             return False
 
     def disconnect(self) -> None:

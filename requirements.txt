@@ -41,8 +41,11 @@ pygetwindow>=0.0.9          # overlay window position tracking
 # Capture card
 cv2-enumerate-cameras>=0.1.17  # list UVC devices by name (find_capture_device.py)
 
-# CPU inference
-onnxruntime>=1.17.0             # fast CPU inference for exported ONNX models
+# Inference runtime — install ONE of the following:
+#   CPU only (default, works everywhere):
+onnxruntime>=1.17.0
+#   GPU/CUDA (RTX 5060, run setup_gpu.bat to switch — it uninstalls onnxruntime and installs this):
+#   onnxruntime-gpu>=1.17.0
 
 # Config
 PyYAML>=6.0.1
