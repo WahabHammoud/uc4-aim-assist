@@ -139,7 +139,7 @@ class TargetLock:
 
         # EMA smoothing on displayed box coordinates (reduces per-frame jitter)
         self._ema_box: Optional[Tuple[float, float, float, float]] = None
-        self._ema_alpha: float = 0.4
+        self._ema_alpha: float = 0.3
 
         # Track-age counter: how many frames each track_id has been seen
         self._track_age: Dict[int, int] = defaultdict(int)

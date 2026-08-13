@@ -71,8 +71,8 @@ object_filter:
   self_excl_bottom_max: 0.95         # reject if y2 / frame_height >= 0.95
 
 tracking:
-  track_activation_threshold: 0.35   # Min confidence to start a track
-  lost_track_buffer: 45               # Frames to keep lost track alive (0.75s@60fps)
+  track_activation_threshold: 0.25   # Min confidence to start a track (lowered: start tracking sooner)
+  lost_track_buffer: 120              # Frames to keep lost track alive (2s@60fps — same ID through occlusions)
   minimum_matching_threshold: 0.70    # IoU for track matching
   frame_rate: 60
 
@@ -96,8 +96,8 @@ target_lock:
   # Live system: R2 must exceed this threshold to count as "actively firing"
   r2_activation_threshold: 0.30
   # ── Kalman predictor (still used for PID aim-point smoothing) ────────────
-  kalman_max_predict_frames: 80       # Max frames to predict before releasing lock
-  reacquire_distance_px: 80           # Max px from Kalman prediction to reacquire
+  kalman_max_predict_frames: 120      # Max frames to predict before releasing lock (2s@60fps)
+  reacquire_distance_px: 150          # Max px from Kalman prediction to reacquire (wider zone)
   # ── Self-player belt-and-suspenders (Fix C) ────────────────────────────
   # Belt-and-suspenders: even if a detection slips past Fix A/B, TargetLock
   # will not maintain HOLDING unless the track is at least this many frames
@@ -107,7 +107,7 @@ target_lock:
   # ── High-confidence fast-track (Prompt 4) ──────────────────────────────
   # Detections at or above this confidence skip the normal stability gate —
   # stable after just 1 frame of track age.
-  high_conf_fast_track: 0.75
+  high_conf_fast_track: 0.65
   # ── Crowded scene modifier (Prompt 6) ──────────────────────────────────
   # When more than this many valid detections are visible in a frame, the
   # stability gate is temporarily relaxed to 1 frame (chaotic multi-enemy
