@@ -170,7 +170,7 @@ controller:
   l2_activation_threshold: 0.45      # L2: ADS mode gate
   r2_activation_threshold: 0.30      # R2: actively firing gate (mirrors target_lock)
   # Virtual gamepad type: "ds4" or "xbox360"
-  virtual_gamepad_type: "ds4"
+  virtual_gamepad_type: "xbox360"
 
 capture:
   mode: "capture_card"                # "chiaki" (screen capture) or "capture_card" (UVC)

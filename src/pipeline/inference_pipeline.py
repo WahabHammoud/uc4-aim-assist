@@ -196,7 +196,7 @@ class InferencePipeline:
     def stop(self) -> None:
         self._running = False
 
-    def run(self, show_debug: bool = False, overlay=None, show_feed: bool = False) -> None:
+    def run(self, show_debug: bool = False, overlay=None, show_feed: bool = False, windowed: bool = False) -> None:
         """
         Main loop. Runs until stop() is called.
 
@@ -231,8 +231,12 @@ class InferencePipeline:
         _FEED_WIN = "UC4 Aim Assist — Feed"
         if show_feed:
             cv2.namedWindow(_FEED_WIN, cv2.WINDOW_NORMAL)
-            cv2.setWindowProperty(_FEED_WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-            log.info("Feed window opened (fullscreen) — press ESC to quit.")
+            if windowed:
+                cv2.resizeWindow(_FEED_WIN, 960, 540)
+                log.info("Feed window opened (960x540 windowed) — press ESC to quit.")
+            else:
+                cv2.setWindowProperty(_FEED_WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                log.info("Feed window opened (fullscreen) — press ESC to quit.")
 
         _debug_dir: Optional[Path] = None
         _debug_frame_count = 0

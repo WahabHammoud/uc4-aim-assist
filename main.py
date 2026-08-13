@@ -48,7 +48,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--show-feed", action="store_true",
-        help="Show capture card feed in a fullscreen window with the red box drawn on frame (use with --capture-card)"
+        help="Show capture card feed in a window with the red box drawn on frame (use with --capture-card)"
+    )
+    parser.add_argument(
+        "--windowed", action="store_true",
+        help="Open the feed window at 960x540 windowed mode instead of fullscreen. Use on 4K monitors."
     )
     args = parser.parse_args()
 
@@ -105,7 +109,7 @@ def main() -> None:
 
     try:
         pipeline.start()
-        pipeline.run(show_debug=args.debug, overlay=overlay, show_feed=args.show_feed)
+        pipeline.run(show_debug=args.debug, overlay=overlay, show_feed=args.show_feed, windowed=args.windowed)
     except Exception as exc:
         log.exception("Fatal error in pipeline: %s", exc)
         sys.exit(1)
