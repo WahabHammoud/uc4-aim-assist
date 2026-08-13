@@ -10,6 +10,14 @@ cross-thread GUI calls.  The pipeline pushes state via update_box() which
 writes to a lock-protected slot; the overlay reads that slot in its own
 50 ms tick.
 
+Coordinate scaling
+------------------
+Detection runs on the captured frame (which may be 1920x1080 or any other
+resolution).  The Chiaki window displayed on screen may be a different size
+(windowed mode, DPI scaling, etc.).  update_box() therefore accepts the
+frame dimensions alongside the bounding box; tick() scales the coordinates
+to match the actual Chiaki window size before drawing.
+
 Requires: pip install pygetwindow
 """
 
@@ -38,18 +46,19 @@ class OverlayWindow:
     Usage
     -----
     overlay = OverlayWindow(window_title="Chiaki")
-    overlay.start()                          # spawns overlay thread
-    overlay.update_box((x1,y1,x2,y2), True) # call from pipeline each frame
-    overlay.stop()                           # on shutdown
+    overlay.start()                                          # spawns overlay thread
+    overlay.update_box((x1,y1,x2,y2), True, (1920, 1080))  # call from pipeline each frame
+    overlay.stop()                                           # on shutdown
     """
 
     def __init__(self, window_title: str = "Chiaki"):
         self._window_title = window_title
-        self._lock    = threading.Lock()
-        self._box:     Optional[Tuple[int, int, int, int]] = None
-        self._visible: bool = False
-        self._running: bool = False
-        self._thread:  Optional[threading.Thread] = None
+        self._lock       = threading.Lock()
+        self._box:        Optional[Tuple[int, int, int, int]] = None
+        self._visible:    bool = False
+        self._frame_size: Tuple[int, int] = (1920, 1080)  # source frame dimensions
+        self._running:    bool = False
+        self._thread:     Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
     # Public API — safe to call from any thread
@@ -57,13 +66,21 @@ class OverlayWindow:
 
     def update_box(
         self,
-        box:     Optional[Tuple[int, int, int, int]],
-        visible: bool,
+        box:        Optional[Tuple[int, int, int, int]],
+        visible:    bool,
+        frame_size: Tuple[int, int] = (1920, 1080),
     ) -> None:
-        """Push the latest lock state.  Called from the pipeline thread."""
+        """
+        Push the latest lock state.  Called from the pipeline thread.
+
+        frame_size is the (width, height) of the frame the bounding box
+        coordinates are relative to.  The overlay scales them to match the
+        actual Chiaki window size on screen before drawing.
+        """
         with self._lock:
-            self._box     = box
-            self._visible = visible
+            self._box        = box
+            self._visible    = visible
+            self._frame_size = frame_size
 
     def start(self) -> None:
         """Spawn the overlay thread.  Returns immediately."""
@@ -137,25 +154,43 @@ class OverlayWindow:
         canvas = tk.Canvas(root, bg=_TRANSPARENT, highlightthickness=0)
         canvas.pack(fill=tk.BOTH, expand=True)
 
+        # Track current on-screen window size so scaling stays correct even
+        # after Chiaki is resized or moved.
+        win_size = [width, height]  # mutable list updated in tick()
+
         def tick() -> None:
             if not self._running:
                 root.quit()
                 return
 
             # Reposition overlay if the Chiaki window moved / resized
-            geo = self._find_chiaki()
-            if geo:
-                l, t, w, h = geo
+            cur_geo = self._find_chiaki()
+            if cur_geo:
+                l, t, w, h = cur_geo
                 root.geometry(f"{w}x{h}+{l}+{t}")
+                win_size[0], win_size[1] = w, h
 
             canvas.delete("all")
 
             with self._lock:
-                box     = self._box
-                visible = self._visible
+                box        = self._box
+                visible    = self._visible
+                frame_size = self._frame_size
 
             if visible and box is not None:
                 x1, y1, x2, y2 = box
+
+                # Scale from detection-frame coordinates to on-screen window coords.
+                fw, fh = frame_size
+                ww, wh = win_size
+                if fw > 0 and fh > 0 and (fw != ww or fh != wh):
+                    x_scale = ww / fw
+                    y_scale = wh / fh
+                    x1 = int(x1 * x_scale)
+                    y1 = int(y1 * y_scale)
+                    x2 = int(x2 * x_scale)
+                    y2 = int(y2 * y_scale)
+
                 canvas.create_rectangle(
                     x1, y1, x2, y2,
                     outline=_BOX_COLOUR,

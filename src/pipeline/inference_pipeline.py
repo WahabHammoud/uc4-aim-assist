@@ -351,6 +351,7 @@ class InferencePipeline:
                     overlay.update_box(
                         self._lock_sm.locked_box if self._lock_sm else None,
                         lock_state == LockState.ENGAGED,
+                        frame_size=(self._frame_w, self._frame_h),
                     )
 
                 # ---- 11. Feed window (capture card live view with box) ----

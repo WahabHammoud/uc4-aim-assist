@@ -117,6 +117,13 @@ class ChiakiCapture:
     def region(self) -> Optional[CaptureRegion]:
         return self._region
 
+    @property
+    def window_size(self) -> Optional[Tuple[int, int]]:
+        """Actual Chiaki window dimensions on screen, unaffected by scale_factor."""
+        if self._region is None:
+            return None
+        return (self._region.width, self._region.height)
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
