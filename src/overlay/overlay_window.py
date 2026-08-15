@@ -101,7 +101,14 @@ class OverlayWindow:
             self._frame_size = frame_size
 
     def start(self) -> None:
-        """Spawn the overlay thread.  Returns immediately."""
+        """Spawn the overlay thread.  Returns immediately.
+
+        Idempotent — calling start() while the overlay is already running
+        logs a warning and returns without creating a second window.
+        """
+        if self._thread is not None and self._thread.is_alive():
+            log.warning("OverlayWindow.start() called while already running — ignoring.")
+            return
         self._running = True
         self._thread = threading.Thread(
             target=self._run, daemon=True, name="OverlayWindow"

@@ -65,6 +65,8 @@ def _cv2_corners(
     cv2.line(img, (x2, y2), (x2, y2 - length), white, thickness)
 
 
+_FEED_WIN = "UC4 Aim Assist — Feed"   # single canonical window name
+
 class InferencePipeline:
     """
     Top-level controller for the aim assist system.
@@ -114,6 +116,10 @@ class InferencePipeline:
         self._infer_frame: Optional[np.ndarray] = None
         self._infer_result: Optional[Tuple] = None   # (classified, enemies, tracked)
         self._infer_thread: Optional[threading.Thread] = None
+
+        # Feed window guard — True once cv2.namedWindow has been called so we
+        # never call it again even if run() is invoked more than once.
+        self._feed_window_created: bool = False
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -246,15 +252,10 @@ class InferencePipeline:
             self._infer_thread.start()
             log.info("Threaded inference enabled — YOLO runs in background thread.")
 
-        _FEED_WIN = "UC4 Aim Assist — Feed"
-        if show_feed:
-            cv2.namedWindow(_FEED_WIN, cv2.WINDOW_NORMAL)
-            if windowed:
-                cv2.resizeWindow(_FEED_WIN, 960, 540)
-                log.info("Feed window opened (960x540 windowed) — press ESC to quit.")
-            else:
-                cv2.setWindowProperty(_FEED_WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-                log.info("Feed window opened (fullscreen) — press ESC to quit.")
+        # Window creation is deferred to the first frame so that the capture
+        # subsystem is confirmed alive before any GUI surfaces.  The
+        # _feed_window_created flag prevents a second cv2.namedWindow() call
+        # if run() is ever re-entered or the loop restarts.
 
         _debug_dir: Optional[Path] = None
         _debug_frame_count = 0
@@ -374,6 +375,24 @@ class InferencePipeline:
 
                 # ---- 11. Feed window (capture card live view with box) ----
                 if show_feed:
+                    # Create the window exactly once — never call namedWindow again.
+                    if not self._feed_window_created:
+                        cv2.namedWindow(_FEED_WIN, cv2.WINDOW_NORMAL)
+                        if windowed:
+                            cv2.resizeWindow(_FEED_WIN, 960, 540)
+                            log.info("Feed window opened (960x540 windowed) — press ESC to quit.")
+                        else:
+                            cv2.setWindowProperty(
+                                _FEED_WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
+                            )
+                            log.info("Feed window opened (fullscreen) — press ESC to quit.")
+                        self._feed_window_created = True
+
+                    # Stop if the user closed the window via the X button.
+                    if cv2.getWindowProperty(_FEED_WIN, cv2.WND_PROP_VISIBLE) < 1:
+                        log.info("Feed window closed by user — stopping.")
+                        break
+
                     feed_frame = self._draw_feed(frame, lock_state)
                     cv2.imshow(_FEED_WIN, feed_frame)
                     if cv2.waitKey(1) & 0xFF == 27:  # ESC
@@ -503,9 +522,10 @@ class InferencePipeline:
 
     def _shutdown(self, show_debug: bool, show_feed: bool = False) -> None:
         log.info("Shutting down pipeline…")
-        if show_feed:
+        if self._feed_window_created:
             cv2.destroyAllWindows()
-            cv2.waitKey(1)
+            cv2.waitKey(1)   # pump the event loop so the destroy takes effect
+            self._feed_window_created = False
         if self._capture:
             self._capture.stop()
         if self._ds_reader:
