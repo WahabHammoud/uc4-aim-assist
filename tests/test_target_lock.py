@@ -435,3 +435,41 @@ class TestTargetLock:
         e2_new     = _enemy(_SCREEN_CX,      H * 0.45, tid=2, conf=0.90)
         lock.update([e1_shifted, e2_new], l2_held=True, r2_held=True)
         assert lock.locked_id == 1   # should NOT have switched
+
+    # ── Fixed-box-size mode ───────────────────────────────────────────────
+
+    def test_fixed_box_stable(self):
+        """When use_fixed_box_size=True, locked_box w/h stays constant regardless
+        of YOLO detection size.  Only the centre follows the enemy."""
+        cfg = {
+            **_CFG,
+            "use_fixed_box_size": True,
+            "fixed_box_width_ratio":  0.12,
+            "fixed_box_height_ratio": 0.28,
+        }
+        lock = TargetLock(config=cfg, frame_width=W, frame_height=H, aim_point_ratio=0.30)
+
+        # Frame 1: small detection (head only)
+        e_small = _enemy(_SCREEN_CX, _SCREEN_CY, tid=1, bw=50, bh=100)
+        lock.update([e_small], l2_held=True, r2_held=True)
+        assert lock.state == LockState.ENGAGED
+        box1 = lock.locked_box
+        assert box1 is not None
+        w1 = box1[2] - box1[0]
+        h1 = box1[3] - box1[1]
+
+        # Frame 2: large detection (full body) — same track_id, same centre
+        e_large = _enemy(_SCREEN_CX, _SCREEN_CY, tid=1, bw=300, bh=600)
+        lock.update([e_large], l2_held=True, r2_held=True)
+        box2 = lock.locked_box
+        assert box2 is not None
+        w2 = box2[2] - box2[0]
+        h2 = box2[3] - box2[1]
+
+        # Box size must NOT change when detection bbox changes — fixed mode is on
+        assert w1 == w2, f"Fixed box width changed: {w1} → {w2}"
+        assert h1 == h2, f"Fixed box height changed: {h1} → {h2}"
+
+        # Box size must approximate the configured ratios (±2px for int rounding)
+        assert abs(w1 - round(0.12 * W)) <= 2, f"Width {w1} far from expected {round(0.12 * W)}"
+        assert abs(h1 - round(0.28 * H)) <= 2, f"Height {h1} far from expected {round(0.28 * H)}"

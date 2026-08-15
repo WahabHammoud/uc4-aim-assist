@@ -128,6 +128,14 @@ target_lock:
   # After this many consecutive NO_BOX frames, last-known position is cleared
   # and any target in the zone can be acquired as if fresh.
   lock_expiry_frames: 90
+  # ── Weighted history box smoothing ──────────────────────────────────────────
+  # Tracks (cx, cy, w, h) independently so bbox height changes don't cause y1/y2
+  # to jump asymmetrically.  Weights are newest-first; shorter history renormalises.
+  use_fixed_box_size: false           # true: fixed w/h, only centre follows enemy
+  fixed_box_width_ratio: 0.12         # box width as fraction of frame_w
+  fixed_box_height_ratio: 0.28        # box height as fraction of frame_h
+  smoothing_history_frames: 8         # rolling window depth (max = len(smoothing_weights))
+  smoothing_weights: [0.35, 0.20, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03]  # newest-first
 
 roi:
   # Fraction of bbox (0=left/top, 1=right/bottom)

@@ -47,6 +47,24 @@ from src.utils.profiler import FrameProfiler
 log = get_logger(__name__)
 
 
+def _cv2_corners(
+    img: np.ndarray,
+    x1: int, y1: int, x2: int, y2: int,
+    length: int = 20,
+    thickness: int = 3,
+) -> None:
+    """Draw white L-shaped corner markers on an OpenCV frame."""
+    white = (255, 255, 255)
+    cv2.line(img, (x1, y1), (x1 + length, y1), white, thickness)
+    cv2.line(img, (x1, y1), (x1, y1 + length), white, thickness)
+    cv2.line(img, (x2, y1), (x2 - length, y1), white, thickness)
+    cv2.line(img, (x2, y1), (x2, y1 + length), white, thickness)
+    cv2.line(img, (x1, y2), (x1 + length, y2), white, thickness)
+    cv2.line(img, (x1, y2), (x1, y2 - length), white, thickness)
+    cv2.line(img, (x2, y2), (x2 - length, y2), white, thickness)
+    cv2.line(img, (x2, y2), (x2, y2 - length), white, thickness)
+
+
 class InferencePipeline:
     """
     Top-level controller for the aim assist system.
@@ -430,12 +448,13 @@ class InferencePipeline:
     # ------------------------------------------------------------------
 
     def _draw_feed(self, frame: np.ndarray, lock_state: LockState) -> np.ndarray:
-        """Minimal overlay for --show-feed: just the red box when ENGAGED."""
+        """Minimal overlay for --show-feed: red box + white L-corner markers when ENGAGED."""
         out = frame.copy()
         locked_box = self._lock_sm.locked_box if self._lock_sm else None
         if lock_state == LockState.ENGAGED and locked_box is not None:
             x1, y1, x2, y2 = locked_box
-            cv2.rectangle(out, (x1, y1), (x2, y2), (0, 0, 255), 3)
+            cv2.rectangle(out, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            _cv2_corners(out, x1, y1, x2, y2)
         return out
 
     def _draw_debug(

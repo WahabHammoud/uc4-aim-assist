@@ -35,8 +35,26 @@ log = get_logger(__name__)
 # Colour used as the transparent key.  Must not appear in the red box outline.
 _TRANSPARENT = "black"
 _BOX_COLOUR  = "red"
-_BOX_WIDTH   = 3
+_BOX_WIDTH   = 2
+_CORNER_LEN  = 20   # arm length of each L-corner marker (px)
+_CORNER_W    = 3    # line thickness of corner markers
 _TICK_MS     = 50    # overlay refresh interval (ms) — 20 fps is plenty
+
+
+def _draw_corners(
+    canvas: tk.Canvas,
+    x1: int, y1: int, x2: int, y2: int,
+) -> None:
+    """Draw white L-shaped corner markers at each corner of the box."""
+    c, w, n = "white", _CORNER_W, _CORNER_LEN
+    canvas.create_line(x1, y1, x1 + n, y1, fill=c, width=w)
+    canvas.create_line(x1, y1, x1, y1 + n, fill=c, width=w)
+    canvas.create_line(x2, y1, x2 - n, y1, fill=c, width=w)
+    canvas.create_line(x2, y1, x2, y1 + n, fill=c, width=w)
+    canvas.create_line(x1, y2, x1 + n, y2, fill=c, width=w)
+    canvas.create_line(x1, y2, x1, y2 - n, fill=c, width=w)
+    canvas.create_line(x2, y2, x2 - n, y2, fill=c, width=w)
+    canvas.create_line(x2, y2, x2, y2 - n, fill=c, width=w)
 
 
 class OverlayWindow:
@@ -196,6 +214,7 @@ class OverlayWindow:
                     outline=_BOX_COLOUR,
                     width=_BOX_WIDTH,
                 )
+                _draw_corners(canvas, x1, y1, x2, y2)
 
             root.after(_TICK_MS, tick)
 

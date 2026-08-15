@@ -45,7 +45,7 @@ NOT affect the displayed box (which is always drawn at the actual bbox).
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import defaultdict, deque
 from enum import Enum, auto
 from typing import Dict, List, Optional, Tuple
 
@@ -137,9 +137,20 @@ class TargetLock:
         self._last_known_cx: Optional[float] = None
         self._last_known_cy: Optional[float] = None
 
-        # EMA smoothing on displayed box coordinates (reduces per-frame jitter)
-        self._ema_box: Optional[Tuple[float, float, float, float]] = None
-        self._ema_alpha: float = 0.3
+        # Weighted rolling history — smooth (cx, cy, w, h) independently.
+        # Tracking size and position separately stops bbox height changes from
+        # causing y1/y2 to jump asymmetrically (root cause of the "playing" box bug).
+        _raw_weights = config.get("smoothing_weights",
+                                  [0.35, 0.20, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03])
+        _n_hist = max(1, min(int(config.get("smoothing_history_frames", len(_raw_weights))),
+                             len(_raw_weights)))
+        self._history_weights: List[float] = list(_raw_weights[:_n_hist])
+        self._center_history: deque = deque(maxlen=_n_hist)
+
+        # Fixed-box-size mode: box dimensions are constant, only centre follows detection.
+        self._use_fixed_box = bool(config.get("use_fixed_box_size", False))
+        self._fixed_box_w   = float(config.get("fixed_box_width_ratio",  0.12)) * frame_width
+        self._fixed_box_h   = float(config.get("fixed_box_height_ratio", 0.28)) * frame_height
 
         # Track-age counter: how many frames each track_id has been seen
         self._track_age: Dict[int, int] = defaultdict(int)
@@ -314,25 +325,35 @@ class TargetLock:
                         self._track_age.get(cand.track_id, 0),
                     )
 
-                # EMA smoothing on the displayed box — damps per-frame jitter
-                # from YOLO bbox noise without affecting Kalman/PID (which use
-                # the raw clamped coordinates below).
-                x1_s = float(clamped[0])
-                y1_s = float(clamped[1])
-                x2_s = float(clamped[2])
-                y2_s = float(clamped[3])
-                if self._ema_box is None:
-                    self._ema_box = (x1_s, y1_s, x2_s, y2_s)
-                else:
-                    ex1, ey1, ex2, ey2 = self._ema_box
-                    x1_s = self._ema_alpha * x1_s + (1 - self._ema_alpha) * ex1
-                    y1_s = self._ema_alpha * y1_s + (1 - self._ema_alpha) * ey1
-                    x2_s = self._ema_alpha * x2_s + (1 - self._ema_alpha) * ex2
-                    y2_s = self._ema_alpha * y2_s + (1 - self._ema_alpha) * ey2
-                    self._ema_box = (x1_s, y1_s, x2_s, y2_s)
+                # Weighted rolling history on (cx, cy, w, h) — smooths displayed box.
+                # Tracking centre and size independently eliminates asymmetric y1/y2
+                # jumping when YOLO detects different crop heights on the same enemy.
+                _hcx1, _hcy1, _hcx2, _hcy2 = clamped
+                self._center_history.append((
+                    (_hcx1 + _hcx2) / 2.0,
+                    (_hcy1 + _hcy2) / 2.0,
+                    float(_hcx2 - _hcx1),
+                    float(_hcy2 - _hcy1),
+                ))
+                _n_e    = len(self._center_history)
+                _wp     = self._history_weights[:_n_e]
+                _wt     = sum(_wp)
+                _scx = _scy = _sbw = _sbh = 0.0
+                for _i, _ent in enumerate(reversed(list(self._center_history))):
+                    _f    = _wp[_i] / _wt
+                    _scx += _ent[0] * _f
+                    _scy += _ent[1] * _f
+                    _sbw += _ent[2] * _f
+                    _sbh += _ent[3] * _f
+                _dw  = self._fixed_box_w if self._use_fixed_box else _sbw
+                _dh  = self._fixed_box_h if self._use_fixed_box else _sbh
+                _bx1 = max(0, min(int(_scx - _dw / 2), self._fw - 1))
+                _by1 = max(0, min(int(_scy - _dh / 2), self._fh - 1))
+                _bx2 = max(0, min(int(_scx + _dw / 2), self._fw - 1))
+                _by2 = max(0, min(int(_scy + _dh / 2), self._fh - 1))
 
                 self._locked_id  = cand.track_id
-                self._locked_box = (int(x1_s), int(y1_s), int(x2_s), int(y2_s))
+                self._locked_box = (_bx1, _by1, _bx2, _by2)
                 self._state      = LockState.ENGAGED
                 self._hold_cnt   = self._hold
                 self._predict_frames = 0
@@ -470,7 +491,7 @@ class TargetLock:
         self._release_countdown = 0
         self._smooth_w          = None
         self._smooth_h          = None
-        self._ema_box           = None
+        self._center_history.clear()
         self._kalman.reset()
 
     # ── Properties ───────────────────────────────────────────────────────────
