@@ -14,6 +14,20 @@ import sys
 from pathlib import Path
 
 
+def _deep_merge(base: dict, overrides: dict) -> None:
+    """Recursively merge `overrides` into `base` in-place.
+
+    Dict values are merged recursively; all other types are replaced.
+    This lets config_local.yaml override individual keys within a section
+    without having to repeat the entire section.
+    """
+    for key, val in overrides.items():
+        if key in base and isinstance(base[key], dict) and isinstance(val, dict):
+            _deep_merge(base[key], val)
+        else:
+            base[key] = val
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="UC4 Aim Assist — PS5 Enemy Detection & Target Lock"
@@ -71,7 +85,18 @@ def main() -> None:
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
 
+    # Load user-local overrides (gitignored, never committed).
+    # config_local.yaml lives next to config.yaml and only needs to contain
+    # the keys you want to change — everything else stays at the committed default.
+    config_local_path = config_path.parent / "config_local.yaml"
+    if config_local_path.exists():
+        with open(config_local_path) as f:
+            local_overrides = yaml.safe_load(f) or {}
+        _deep_merge(cfg, local_overrides)
+
     log = get_logger("main", cfg.get("logging", {}))
+    if config_local_path.exists():
+        log.info("Local overrides applied from %s", config_local_path)
     log.info("=" * 60)
     log.info("UC4 Aim Assist — Uncharted 4 PS5 Enemy Tracking System")
     log.info("=" * 60)

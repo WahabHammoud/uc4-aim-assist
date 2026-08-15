@@ -1,0 +1,43 @@
+# config_local.yaml — user-specific overrides
+#
+# Copy this file to config/config_local.yaml and edit to taste.
+# config_local.yaml is gitignored and will never be committed.
+# Only list the keys you want to change — everything else inherits from config.yaml.
+#
+# Usage:
+#   cp config/config_local.yaml.example config/config_local.yaml
+#   # then edit config/config_local.yaml
+
+# ── Capture ────────────────────────────────────────────────────────────────────
+# Uncomment and set to match your capture hardware.
+
+# capture:
+#   mode: "capture_card"           # "chiaki" or "capture_card"
+#   capture_card_index: 0          # 0, 1, 2 … run tools/find_capture_device.py to list
+#   capture_width: 1920
+#   capture_height: 1080
+
+# ── Visualization box ──────────────────────────────────────────────────────────
+# Controls how the displayed bounding rectangle looks and moves.
+# These are the recommended values for a stable visualization overlay.
+
+# target_lock:
+#   use_fixed_box_size: true       # true = constant box dimensions; only centre moves
+#   fixed_box_width_ratio: 0.13    # box width  = 0.13 × frame_width  (e.g. 250 px @ 1920)
+#   fixed_box_height_ratio: 0.30   # box height = 0.30 × frame_height (e.g. 324 px @ 1080)
+#   center_ema_alpha: 0.10         # secondary EMA on smoothed centre (0 = disabled)
+#   smoothing_history_frames: 8    # number of past frames to weight
+#   smoothing_weights: [0.35, 0.20, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03]
+
+# ── Detection ──────────────────────────────────────────────────────────────────
+# Do NOT lower confidence_threshold below 0.40 — it increases false positives
+# significantly on backgrounds that resemble human silhouettes.
+
+# detection:
+#   confidence_threshold: 0.55     # default; raise if you see too many false boxes
+
+# ── Logging ────────────────────────────────────────────────────────────────────
+# Set to "DEBUG" to see every frame's detection count and lock-state transitions.
+
+# logging:
+#   level: "INFO"                  # DEBUG / INFO / WARNING / ERROR

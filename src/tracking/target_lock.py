@@ -147,6 +147,12 @@ class TargetLock:
         self._history_weights: List[float] = list(_raw_weights[:_n_hist])
         self._center_history: deque = deque(maxlen=_n_hist)
 
+        # Optional secondary EMA on the weighted-average centre — adds longer-memory
+        # stability on top of the FIR history buffer.  Alpha=0 disables it.
+        self._center_ema_alpha: float = float(config.get("center_ema_alpha", 0.0))
+        self._ema_cx: Optional[float] = None
+        self._ema_cy: Optional[float] = None
+
         # Fixed-box-size mode: box dimensions are constant, only centre follows detection.
         self._use_fixed_box = bool(config.get("use_fixed_box_size", False))
         self._fixed_box_w   = float(config.get("fixed_box_width_ratio",  0.12)) * frame_width
@@ -197,6 +203,8 @@ class TargetLock:
                 self._last_known_cy = None
                 self._smooth_w      = None
                 self._smooth_h      = None
+                self._ema_cx        = None
+                self._ema_cy        = None
                 self._expiry_counter = 0
                 log.debug("Lock expired — position memory cleared")
         else:
@@ -325,35 +333,8 @@ class TargetLock:
                         self._track_age.get(cand.track_id, 0),
                     )
 
-                # Weighted rolling history on (cx, cy, w, h) — smooths displayed box.
-                # Tracking centre and size independently eliminates asymmetric y1/y2
-                # jumping when YOLO detects different crop heights on the same enemy.
-                _hcx1, _hcy1, _hcx2, _hcy2 = clamped
-                self._center_history.append((
-                    (_hcx1 + _hcx2) / 2.0,
-                    (_hcy1 + _hcy2) / 2.0,
-                    float(_hcx2 - _hcx1),
-                    float(_hcy2 - _hcy1),
-                ))
-                _n_e    = len(self._center_history)
-                _wp     = self._history_weights[:_n_e]
-                _wt     = sum(_wp)
-                _scx = _scy = _sbw = _sbh = 0.0
-                for _i, _ent in enumerate(reversed(list(self._center_history))):
-                    _f    = _wp[_i] / _wt
-                    _scx += _ent[0] * _f
-                    _scy += _ent[1] * _f
-                    _sbw += _ent[2] * _f
-                    _sbh += _ent[3] * _f
-                _dw  = self._fixed_box_w if self._use_fixed_box else _sbw
-                _dh  = self._fixed_box_h if self._use_fixed_box else _sbh
-                _bx1 = max(0, min(int(_scx - _dw / 2), self._fw - 1))
-                _by1 = max(0, min(int(_scy - _dh / 2), self._fh - 1))
-                _bx2 = max(0, min(int(_scx + _dw / 2), self._fw - 1))
-                _by2 = max(0, min(int(_scy + _dh / 2), self._fh - 1))
-
                 self._locked_id  = cand.track_id
-                self._locked_box = (_bx1, _by1, _bx2, _by2)
+                self._locked_box = self._smooth_box(*clamped)
                 self._state      = LockState.ENGAGED
                 self._hold_cnt   = self._hold
                 self._predict_frames = 0
@@ -434,7 +415,7 @@ class TargetLock:
                         # Degenerate — fall through to Kalman prediction
                         pass
                     else:
-                        self._locked_box = clamped
+                        self._locked_box = self._smooth_box(*clamped)
                         cx1, cy1, cx2, cy2 = clamped
                         self._state    = LockState.HOLDING
                         self._hold_cnt -= 1
@@ -456,6 +437,45 @@ class TargetLock:
 
         self._release(reason)
         return None, self._state
+
+    def _smooth_box(
+        self, x1: int, y1: int, x2: int, y2: int
+    ) -> Tuple[int, int, int, int]:
+        """Push a raw clamped detection into the history buffer and return the
+        smoothed display box.  Called from both ENGAGED and HOLDING paths so
+        the rectangle is never drawn from raw YOLO coordinates."""
+        self._center_history.append((
+            (x1 + x2) / 2.0,
+            (y1 + y2) / 2.0,
+            float(x2 - x1),
+            float(y2 - y1),
+        ))
+        n_e = len(self._center_history)
+        wp  = self._history_weights[:n_e]
+        wt  = sum(wp)
+        scx = scy = sbw = sbh = 0.0
+        for i, ent in enumerate(reversed(list(self._center_history))):
+            f    = wp[i] / wt
+            scx += ent[0] * f
+            scy += ent[1] * f
+            sbw += ent[2] * f
+            sbh += ent[3] * f
+        # Optional secondary EMA on centre — zero alpha disables it.
+        if self._center_ema_alpha > 0.0:
+            if self._ema_cx is None:
+                self._ema_cx, self._ema_cy = scx, scy
+            else:
+                a = self._center_ema_alpha
+                self._ema_cx = a * scx + (1.0 - a) * self._ema_cx
+                self._ema_cy = a * scy + (1.0 - a) * self._ema_cy
+            scx, scy = self._ema_cx, self._ema_cy
+        dw  = self._fixed_box_w if self._use_fixed_box else sbw
+        dh  = self._fixed_box_h if self._use_fixed_box else sbh
+        bx1 = max(0, min(int(scx - dw / 2), self._fw - 1))
+        by1 = max(0, min(int(scy - dh / 2), self._fh - 1))
+        bx2 = max(0, min(int(scx + dw / 2), self._fw - 1))
+        by2 = max(0, min(int(scy + dh / 2), self._fh - 1))
+        return bx1, by1, bx2, by2
 
     def _in_zone(self, det: Detection) -> bool:
         """True if the detection centre is within the strict engagement radius."""
@@ -491,6 +511,8 @@ class TargetLock:
         self._release_countdown = 0
         self._smooth_w          = None
         self._smooth_h          = None
+        self._ema_cx            = None
+        self._ema_cy            = None
         self._center_history.clear()
         self._kalman.reset()
 

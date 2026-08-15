@@ -50,3 +50,6 @@ runs/
 
 # Evaluation outputs
 eval_results/
+
+# User-local config overrides (never commit)
+config/config_local.yaml

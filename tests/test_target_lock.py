@@ -436,6 +436,123 @@ class TestTargetLock:
         lock.update([e1_shifted, e2_new], l2_held=True, r2_held=True)
         assert lock.locked_id == 1   # should NOT have switched
 
+    # ── Visualization smoothing ───────────────────────────────────────────
+
+    def test_center_smoothing_reduces_jump(self):
+        """When detection centre jumps 200 px, the displayed centre moves less
+        than the raw jump on the very next frame (weighted history damps it)."""
+        lock = _make_lock()
+        # Engage at screen centre
+        e1 = _enemy(_SCREEN_CX, _SCREEN_CY, tid=1)
+        lock.update([e1], l2_held=True, r2_held=True)
+        box1 = lock.locked_box
+        assert box1 is not None
+        cx1 = (box1[0] + box1[2]) / 2.0
+
+        # Next frame: same track but detection centre jumps 200 px to the right
+        e2 = _enemy(_SCREEN_CX + 200, _SCREEN_CY, tid=1)
+        lock.update([e2], l2_held=True, r2_held=True)
+        box2 = lock.locked_box
+        assert box2 is not None
+        cx2 = (box2[0] + box2[2]) / 2.0
+
+        actual_jump = cx2 - cx1
+        raw_jump    = 200.0
+        assert actual_jump < raw_jump, (
+            f"Smoothed centre moved {actual_jump:.1f} px but raw jump was {raw_jump} px — "
+            "weighted history should have dampened it"
+        )
+
+    def test_center_ema_further_damps_jump(self):
+        """With center_ema_alpha active, the displayed centre moves even less
+        than with weighted history alone."""
+        cfg_no_ema  = {**_CFG, "center_ema_alpha": 0.0}
+        cfg_with_ema = {**_CFG, "center_ema_alpha": 0.10}
+
+        lock_no  = _make_lock(cfg_no_ema)
+        lock_ema = _make_lock(cfg_with_ema)
+
+        for lock in (lock_no, lock_ema):
+            lock.update([_enemy(_SCREEN_CX, _SCREEN_CY, tid=1)],
+                        l2_held=True, r2_held=True)
+
+        # Large jump
+        e_jump = _enemy(_SCREEN_CX + 300, _SCREEN_CY, tid=1)
+        lock_no.update([e_jump],  l2_held=True, r2_held=True)
+        lock_ema.update([e_jump], l2_held=True, r2_held=True)
+
+        box_no  = lock_no.locked_box
+        box_ema = lock_ema.locked_box
+        assert box_no  is not None
+        assert box_ema is not None
+
+        cx_no  = (box_no[0]  + box_no[2])  / 2.0
+        cx_ema = (box_ema[0] + box_ema[2]) / 2.0
+
+        # EMA lock should have moved less toward the new position
+        jump_no  = cx_no  - _SCREEN_CX
+        jump_ema = cx_ema - _SCREEN_CX
+        assert jump_ema < jump_no, (
+            f"EMA centre moved {jump_ema:.1f} px vs no-EMA {jump_no:.1f} px — "
+            "EMA should suppress the jump further"
+        )
+
+    def test_holding_path_box_is_smoothed(self):
+        """When transitioning to HOLDING (R2 released), the box should NOT snap
+        to the raw YOLO clamped coordinates — the history buffer must still apply."""
+        cfg = {**_CFG, "engagement_hold_frames": 10}
+        lock = _make_lock(cfg)
+
+        # Engage on a small detection
+        e_small = _enemy(_SCREEN_CX, _SCREEN_CY, tid=1, bw=50, bh=80)
+        lock.update([e_small], l2_held=True, r2_held=True)
+        assert lock.state == LockState.ENGAGED
+        box_engaged = lock.locked_box
+        assert box_engaged is not None
+
+        # R2 released → HOLDING; present a much taller detection at same centre
+        e_tall = _enemy(_SCREEN_CX, _SCREEN_CY, tid=1, bw=50, bh=600)
+        lock.update([e_tall], l2_held=True, r2_held=False)
+        assert lock.state == LockState.HOLDING
+        box_hold = lock.locked_box
+        assert box_hold is not None
+
+        # The HOLDING box centre should be within 10 px of the ENGAGED centre
+        # (history damps the sudden height change).
+        cx_eng  = (box_engaged[0] + box_engaged[2]) / 2.0
+        cy_eng  = (box_engaged[1] + box_engaged[3]) / 2.0
+        cx_hold = (box_hold[0]    + box_hold[2])    / 2.0
+        cy_hold = (box_hold[1]    + box_hold[3])    / 2.0
+        import math
+        drift = math.hypot(cx_hold - cx_eng, cy_hold - cy_eng)
+        assert drift < 20, (
+            f"Box centre drifted {drift:.1f} px between ENGAGED and HOLDING — "
+            "HOLDING path should use history smoothing, not raw YOLO bbox"
+        )
+
+    def test_box_disappears_when_track_lost(self):
+        """When the locked track is no longer supplied and the Kalman dropout
+        window expires, locked_box must be None."""
+        cfg = {
+            **_CFG,
+            "lock_release_frames": 2,
+            "kalman_max_predict_frames": 2,
+            "engagement_hold_frames": 2,
+        }
+        lock = _make_lock(cfg)
+        e = _enemy(_SCREEN_CX, _SCREEN_CY, tid=1)
+        lock.update([e], l2_held=True, r2_held=True)
+        assert lock.locked_box is not None
+
+        # Feed empty detections until lock releases
+        for _ in range(20):
+            lock.update([], l2_held=True, r2_held=True)
+            if lock.state == LockState.NO_BOX:
+                break
+
+        assert lock.state == LockState.NO_BOX
+        assert lock.locked_box is None
+
     # ── Fixed-box-size mode ───────────────────────────────────────────────
 
     def test_fixed_box_stable(self):
