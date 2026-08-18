@@ -68,6 +68,18 @@ def main() -> None:
         "--windowed", action="store_true",
         help="Open the feed window at 960x540 windowed mode instead of fullscreen. Use on 4K monitors."
     )
+    parser.add_argument(
+        "--test-video", action="store_true",
+        help="Use a local video file instead of Chiaki/capture card. Opens a file picker if --video-path is not given."
+    )
+    parser.add_argument(
+        "--video-path", type=str, default=None,
+        help="Path to a video file for --test-video mode (skips file picker dialog)."
+    )
+    parser.add_argument(
+        "--demo", action="store_true",
+        help="Demo mode: L2 gating disabled — box shows whenever an enemy is detected."
+    )
     args = parser.parse_args()
 
     # Validate config path
@@ -120,6 +132,31 @@ def main() -> None:
                 args.device_index,
             )
 
+    if args.test_video or args.video_path:
+        video_path = args.video_path
+        if not video_path:
+            import tkinter as tk
+            from tkinter import filedialog
+            _root = tk.Tk()
+            _root.withdraw()
+            video_path = filedialog.askopenfilename(
+                title="Select a video file for testing",
+                filetypes=[
+                    ("Video files", "*.mp4 *.avi *.mkv *.mov *.wmv *.ts *.m4v"),
+                    ("All files", "*.*"),
+                ],
+            )
+            _root.destroy()
+            if not video_path:
+                print("[ERROR] No video file selected. Exiting.")
+                sys.exit(1)
+        cfg.setdefault("capture", {})["mode"] = "video_file"
+        cfg["capture"]["video_path"] = video_path
+        log.info("--test-video active: using video file: %s", video_path)
+
+    if args.demo:
+        log.info("--demo active: L2 gating disabled — box shows on every detected enemy.")
+
     # Pass the (possibly patched) config dict directly so in-memory patches
     # are not lost when InferencePipeline re-reads the YAML from disk.
     pipeline = InferencePipeline(config_path=str(config_path), config=cfg)
@@ -134,7 +171,7 @@ def main() -> None:
 
     try:
         pipeline.start()
-        pipeline.run(show_debug=args.debug, overlay=overlay, show_feed=args.show_feed, windowed=args.windowed)
+        pipeline.run(show_debug=args.debug, overlay=overlay, show_feed=args.show_feed, windowed=args.windowed, demo_mode=args.demo)
     except Exception as exc:
         log.exception("Fatal error in pipeline: %s", exc)
         sys.exit(1)

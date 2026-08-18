@@ -131,13 +131,18 @@ class InferencePipeline:
 
         # 1. Screen capture
         capture_cfg = self._cfg["capture"]
-        if capture_cfg.get("mode", "chiaki") == "capture_card":
+        mode = capture_cfg.get("mode", "chiaki")
+        if mode == "capture_card":
             from src.capture.capture_card import CaptureCardCapture
             self._capture = CaptureCardCapture(capture_cfg)
             log.info(
                 "Capture mode: capture_card (device %d)",
                 capture_cfg.get("capture_card_index", 0),
             )
+        elif mode == "video_file":
+            from src.capture.video_file_capture import VideoFileCapture
+            self._capture = VideoFileCapture(capture_cfg)
+            log.info("Capture mode: video_file (%s)", capture_cfg.get("video_path", ""))
         else:
             self._capture = ChiakiCapture(capture_cfg)
             log.info("Capture mode: chiaki (screen capture)")
@@ -220,7 +225,7 @@ class InferencePipeline:
     def stop(self) -> None:
         self._running = False
 
-    def run(self, show_debug: bool = False, overlay=None, show_feed: bool = False, windowed: bool = False) -> None:
+    def run(self, show_debug: bool = False, overlay=None, show_feed: bool = False, windowed: bool = False, demo_mode: bool = False) -> None:
         """
         Main loop. Runs until stop() is called.
 
@@ -336,6 +341,9 @@ class InferencePipeline:
                     if ctrl_state.connected
                     else True    # no controller → treat as always firing for testing
                 )
+                if demo_mode:
+                    l2_held = True
+                    r2_held = True
 
                 # ---- 7. Target lock ----
                 with self._profiler.section("target_lock"):
