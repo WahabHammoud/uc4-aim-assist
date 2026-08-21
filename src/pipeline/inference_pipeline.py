@@ -134,6 +134,11 @@ class _FeedWindowThread:
         self._thread.join(timeout=timeout)
 
     def _run(self) -> None:
+        # Destroy any leftover windows from a previous process that exited without
+        # proper cleanup (e.g. killed via taskkill or an unhandled crash).
+        cv2.destroyAllWindows()
+        cv2.waitKey(1)
+
         # ONE namedWindow call, ever — no imshow anywhere outside this thread.
         cv2.namedWindow(self._title, cv2.WINDOW_NORMAL)
         if self._windowed:

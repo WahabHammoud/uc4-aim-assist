@@ -10,8 +10,63 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Instance lock — prevents multiple simultaneous runs from stacking windows.
+# The lock file stores the PID of the running process so a second launch can
+# kill the first one cleanly before starting.
+# ---------------------------------------------------------------------------
+
+_LOCK_FILE = r"C:\temp\uc4_lock.txt"
+
+
+def _acquire_instance_lock() -> None:
+    """Kill any previous instance and write our PID to the lock file."""
+    try:
+        os.makedirs(r"C:\temp", exist_ok=True)
+    except OSError:
+        return  # can't create directory — skip locking rather than crashing
+
+    if os.path.exists(_LOCK_FILE):
+        try:
+            with open(_LOCK_FILE) as f:
+                old_pid = int(f.read().strip())
+            result = subprocess.run(
+                ["taskkill", "/f", "/pid", str(old_pid)],
+                capture_output=True,
+            )
+            if result.returncode == 0:
+                print(f"[INFO] Killed previous instance (PID {old_pid}).")
+            # Give the process a moment to release cv2 windows
+            import time as _time; _time.sleep(0.3)
+        except (ValueError, OSError, subprocess.SubprocessError):
+            pass
+        try:
+            os.remove(_LOCK_FILE)
+        except OSError:
+            pass
+
+    try:
+        with open(_LOCK_FILE, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass
+
+
+def _release_instance_lock() -> None:
+    """Remove the lock file if it belongs to this process."""
+    try:
+        if os.path.exists(_LOCK_FILE):
+            with open(_LOCK_FILE) as f:
+                pid = int(f.read().strip())
+            if pid == os.getpid():
+                os.remove(_LOCK_FILE)
+    except (ValueError, OSError):
+        pass
 
 
 def _deep_merge(base: dict, overrides: dict) -> None:
@@ -29,6 +84,8 @@ def _deep_merge(base: dict, overrides: dict) -> None:
 
 
 def main() -> None:
+    _acquire_instance_lock()
+
     parser = argparse.ArgumentParser(
         description="UC4 Aim Assist — PS5 Enemy Detection & Target Lock"
     )
@@ -178,6 +235,7 @@ def main() -> None:
     finally:
         if overlay:
             overlay.stop()
+        _release_instance_lock()
 
 
 if __name__ == "__main__":
