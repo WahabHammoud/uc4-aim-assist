@@ -102,6 +102,13 @@ class _FeedWindowThread:
         )
 
     def start(self) -> None:
+        if self._thread.is_alive():
+            log.warning(
+                "_FeedWindowThread.start() called while thread is already alive — ignoring. "
+                "This indicates a bug: _get_or_create_feed_thread() should have returned the "
+                "existing instance instead of constructing a new one."
+            )
+            return
         self._thread.start()
 
     def is_alive(self) -> bool:
@@ -170,16 +177,43 @@ class _FeedWindowThread:
 
 
 def _get_or_create_feed_thread(windowed: bool, stop_callback) -> "_FeedWindowThread":
-    """Return the process-wide feed thread, creating and starting it once."""
+    """Return the process-wide feed thread, creating and starting it once.
+
+    Two independent guards prevent a second window:
+    1. Singleton reference — instance exists and thread is alive.
+    2. cv2.getWindowCount() — hard OS-level check: if any cv2 window is
+       open (including one from a previous instance whose thread reference
+       we may have lost), refuse to open another.
+    """
     global _feed_thread_instance
     with _feed_thread_lock:
-        if _feed_thread_instance is None or not _feed_thread_instance.is_alive():
-            _feed_thread_instance = _FeedWindowThread(
-                title=_FEED_WIN,
-                windowed=windowed,
-                stop_callback=stop_callback,
+        # Guard 1: singleton reference
+        if _feed_thread_instance is not None and _feed_thread_instance.is_alive():
+            return _feed_thread_instance
+
+        # Guard 2: absolute cv2 window count — belt-and-suspenders for Python 3.9
+        try:
+            existing = cv2.getWindowCount()
+        except Exception:
+            existing = 0
+        if existing > 0:
+            log.warning(
+                "Feed window guard: cv2.getWindowCount()=%d — window already open, "
+                "not creating another. Returning existing instance if available.",
+                existing,
             )
-            _feed_thread_instance.start()
+            if _feed_thread_instance is not None:
+                return _feed_thread_instance
+            # Thread reference lost but window still open — wait for it to close
+            # rather than spawn a duplicate.  Caller will retry next frame.
+            return _feed_thread_instance  # type: ignore[return-value]
+
+        _feed_thread_instance = _FeedWindowThread(
+            title=_FEED_WIN,
+            windowed=windowed,
+            stop_callback=stop_callback,
+        )
+        _feed_thread_instance.start()
         return _feed_thread_instance
 
 

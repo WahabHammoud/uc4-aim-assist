@@ -172,20 +172,46 @@ class ChiakiCapture:
         with mss.mss() as sct:
             region = self._region
             monitor = {
-                "left": region.left,
-                "top": region.top,
-                "width": region.width,
+                "left":   region.left,
+                "top":    region.top,
+                "width":  region.width,
                 "height": region.height,
             }
             log.info("Capture thread started.")
             next_frame_time = time.perf_counter()
+            _frame_n = 0
+            # Check for window move/resize every N frames (~2 s at 60 fps).
+            # Region is updated in-place — no thread restart, no new window.
+            _REGION_CHECK_INTERVAL = 120
 
             while not self._stop_event.is_set():
                 now = time.perf_counter()
                 if now < next_frame_time:
                     time.sleep(next_frame_time - now)
-
                 next_frame_time += self._frame_interval
+                _frame_n += 1
+
+                # Periodically refresh capture region if Chiaki window moved/resized
+                if _frame_n % _REGION_CHECK_INTERVAL == 0:
+                    new_region = self._find_chiaki_window()
+                    if new_region is not None and (
+                        new_region.left   != region.left   or
+                        new_region.top    != region.top    or
+                        new_region.width  != region.width  or
+                        new_region.height != region.height
+                    ):
+                        log.info(
+                            "Chiaki window moved/resized: %dx%d at (%d,%d) → %dx%d at (%d,%d) "
+                            "— updating region in-place (no restart).",
+                            region.width, region.height, region.left, region.top,
+                            new_region.width, new_region.height, new_region.left, new_region.top,
+                        )
+                        region = new_region
+                        self._region = new_region
+                        monitor["left"]   = new_region.left
+                        monitor["top"]    = new_region.top
+                        monitor["width"]  = new_region.width
+                        monitor["height"] = new_region.height
 
                 # Capture
                 shot = sct.grab(monitor)
