@@ -143,17 +143,67 @@ class TestNoOpenCVWindowFromOverlay:
         assert ov._thread is live
         live.join(timeout=0)  # don't actually wait
 
-    def test_pipeline_feed_window_created_flag_starts_false(self):
-        """InferencePipeline._feed_window_created must begin False so the first
-        run() call creates the window, not any earlier call."""
+    def test_pipeline_feed_singleton_not_started_on_init(self):
+        """Constructing InferencePipeline must NOT start a feed window thread.
+        The module-level singleton _feed_thread_instance must remain None until
+        run(show_feed=True) is called for the first time."""
         import yaml
+        import src.pipeline.inference_pipeline as pip_mod
         from pathlib import Path
         cfg_path = Path(__file__).resolve().parent.parent / "config" / "config.yaml"
         with open(cfg_path) as f:
             cfg = yaml.safe_load(f)
         from src.pipeline.inference_pipeline import InferencePipeline
-        pipeline = InferencePipeline(config=cfg)
-        assert pipeline._feed_window_created is False
+        # Reset global in case a prior test left it dirty
+        with pip_mod._feed_thread_lock:
+            pip_mod._feed_thread_instance = None
+        InferencePipeline(config=cfg)
+        with pip_mod._feed_thread_lock:
+            assert pip_mod._feed_thread_instance is None
+
+    def test_feed_thread_singleton_reuses_instance(self):
+        """_get_or_create_feed_thread() must return the same object when called
+        twice while the thread is alive — ensuring only one window ever exists."""
+        import src.pipeline.inference_pipeline as pip_mod
+
+        # Reset state
+        with pip_mod._feed_thread_lock:
+            pip_mod._feed_thread_instance = None
+
+        # Inject a fake alive thread so we never actually open a cv2 window
+        import threading
+        fake_stop = lambda: None
+
+        class _FakeThread:
+            def __init__(self):
+                self._t = threading.Thread(
+                    target=lambda: __import__("time").sleep(5), daemon=True
+                )
+                self._t.start()
+                self._title    = pip_mod._FEED_WIN
+                self._windowed = False
+                self._alive    = True
+
+            def is_alive(self):
+                return self._t.is_alive()
+
+            def stop(self):
+                self._alive = False
+
+            def join(self, timeout=2.0):
+                pass
+
+        fake = _FakeThread()
+        with pip_mod._feed_thread_lock:
+            pip_mod._feed_thread_instance = fake  # type: ignore[assignment]
+
+        # Calling the helper again must return the same object, not a new one
+        result = pip_mod._get_or_create_feed_thread(windowed=False, stop_callback=fake_stop)
+        assert result is fake
+
+        # Cleanup
+        with pip_mod._feed_thread_lock:
+            pip_mod._feed_thread_instance = None
 
     def test_pipeline_feed_win_constant_matches_imshow_name(self):
         """The module-level _FEED_WIN constant must be the name used in imshow

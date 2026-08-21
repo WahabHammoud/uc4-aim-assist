@@ -25,6 +25,7 @@ from __future__ import annotations
 import threading
 import time
 from pathlib import Path
+from queue import Empty, Queue
 from typing import List, Optional, Tuple
 
 import cv2
@@ -66,6 +67,121 @@ def _cv2_corners(
 
 
 _FEED_WIN = "UC4 Aim Assist — Feed"   # single canonical window name
+
+# ---------------------------------------------------------------------------
+# Singleton feed-window thread
+#
+# cv2.namedWindow() and cv2.imshow() live ONLY inside this thread.  The main
+# loop never touches cv2 GUI calls directly, so there is no code path that
+# can silently re-create a destroyed window — the original cause of the
+# multiple-windows bug on Python 3.9.
+# ---------------------------------------------------------------------------
+
+_feed_thread_lock: threading.Lock = threading.Lock()
+_feed_thread_instance: Optional["_FeedWindowThread"] = None
+
+
+class _FeedWindowThread:
+    """
+    Daemon thread that owns the cv2 feed window for the lifetime of the
+    process.  Constructed at most once per pipeline run via
+    _get_or_create_feed_thread(); the global singleton prevents a second
+    window even if run() is called multiple times.
+    """
+
+    QUEUE_MAXSIZE = 2
+
+    def __init__(self, title: str, windowed: bool, stop_callback) -> None:
+        self._title         = title
+        self._windowed      = windowed
+        self._stop_callback = stop_callback   # called when user closes / ESC
+        self._queue: Queue  = Queue(maxsize=self.QUEUE_MAXSIZE)
+        self._alive         = True
+        self._thread        = threading.Thread(
+            target=self._run, daemon=True, name="FeedWindow"
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
+
+    def push_frame(self, frame: np.ndarray) -> None:
+        """Non-blocking push — drops oldest frame when queue is full."""
+        if self._queue.full():
+            try:
+                self._queue.get_nowait()
+            except Exception:
+                pass
+        try:
+            self._queue.put_nowait(frame)
+        except Exception:
+            pass
+
+    def stop(self) -> None:
+        """Signal the thread to exit; it destroys the cv2 window itself."""
+        self._alive = False
+
+    def join(self, timeout: float = 2.0) -> None:
+        self._thread.join(timeout=timeout)
+
+    def _run(self) -> None:
+        # ONE namedWindow call, ever — no imshow anywhere outside this thread.
+        cv2.namedWindow(self._title, cv2.WINDOW_NORMAL)
+        if self._windowed:
+            cv2.resizeWindow(self._title, 960, 540)
+            log.info("Feed window opened (960×540 windowed) — press ESC to quit.")
+        else:
+            cv2.setWindowProperty(
+                self._title, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
+            )
+            log.info("Feed window opened (fullscreen) — press ESC to quit.")
+
+        last_frame: Optional[np.ndarray] = None
+
+        while self._alive:
+            try:
+                last_frame = self._queue.get(timeout=0.02)
+            except Empty:
+                pass   # queue empty — redisplay last frame
+
+            if last_frame is not None:
+                cv2.imshow(self._title, last_frame)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27:  # ESC
+                log.info("Feed window: ESC pressed — stopping.")
+                self._stop_callback()
+                break
+
+            try:
+                if cv2.getWindowProperty(self._title, cv2.WND_PROP_VISIBLE) < 1:
+                    log.info("Feed window closed by user — stopping.")
+                    self._stop_callback()
+                    break
+            except Exception:
+                self._stop_callback()
+                break
+
+        cv2.destroyAllWindows()
+        cv2.waitKey(1)
+        log.info("Feed window thread exited.")
+
+
+def _get_or_create_feed_thread(windowed: bool, stop_callback) -> "_FeedWindowThread":
+    """Return the process-wide feed thread, creating and starting it once."""
+    global _feed_thread_instance
+    with _feed_thread_lock:
+        if _feed_thread_instance is None or not _feed_thread_instance.is_alive():
+            _feed_thread_instance = _FeedWindowThread(
+                title=_FEED_WIN,
+                windowed=windowed,
+                stop_callback=stop_callback,
+            )
+            _feed_thread_instance.start()
+        return _feed_thread_instance
+
 
 class InferencePipeline:
     """
@@ -117,9 +233,8 @@ class InferencePipeline:
         self._infer_result: Optional[Tuple] = None   # (classified, enemies, tracked)
         self._infer_thread: Optional[threading.Thread] = None
 
-        # Feed window guard — True once cv2.namedWindow has been called so we
-        # never call it again even if run() is invoked more than once.
-        self._feed_window_created: bool = False
+        # Feed window is managed by the process-wide _FeedWindowThread singleton;
+        # no per-instance state is needed here.
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -275,6 +390,7 @@ class InferencePipeline:
         _last_classified: List   = []
         _last_enemies:    List   = []
         _last_tracked:    List   = []
+        _feed_thread: Optional[_FeedWindowThread] = None
 
         try:
             while self._running:
@@ -381,31 +497,14 @@ class InferencePipeline:
                         frame_size=(self._frame_w, self._frame_h),
                     )
 
-                # ---- 11. Feed window (capture card live view with box) ----
+                # ---- 11. Feed window (singleton thread — one window, ever) ----
                 if show_feed:
-                    # Create the window exactly once — never call namedWindow again.
-                    if not self._feed_window_created:
-                        cv2.namedWindow(_FEED_WIN, cv2.WINDOW_NORMAL)
-                        if windowed:
-                            cv2.resizeWindow(_FEED_WIN, 960, 540)
-                            log.info("Feed window opened (960x540 windowed) — press ESC to quit.")
-                        else:
-                            cv2.setWindowProperty(
-                                _FEED_WIN, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
-                            )
-                            log.info("Feed window opened (fullscreen) — press ESC to quit.")
-                        self._feed_window_created = True
-
-                    # Stop if the user closed the window via the X button.
-                    if cv2.getWindowProperty(_FEED_WIN, cv2.WND_PROP_VISIBLE) < 1:
-                        log.info("Feed window closed by user — stopping.")
-                        break
-
+                    if _feed_thread is None:
+                        _feed_thread = _get_or_create_feed_thread(windowed, self.stop)
+                    if not _feed_thread.is_alive():
+                        break   # user closed / ESC — thread signalled stop
                     feed_frame = self._draw_feed(frame, lock_state)
-                    cv2.imshow(_FEED_WIN, feed_frame)
-                    if cv2.waitKey(1) & 0xFF == 27:  # ESC
-                        log.info("ESC pressed — stopping.")
-                        break
+                    _feed_thread.push_frame(feed_frame)
 
                 # ---- 12. Debug frames (saved to disk, no popup window) ----
                 if show_debug:
@@ -529,11 +628,13 @@ class InferencePipeline:
     # ------------------------------------------------------------------
 
     def _shutdown(self, show_debug: bool, show_feed: bool = False) -> None:
+        global _feed_thread_instance
         log.info("Shutting down pipeline…")
-        if self._feed_window_created:
-            cv2.destroyAllWindows()
-            cv2.waitKey(1)   # pump the event loop so the destroy takes effect
-            self._feed_window_created = False
+        with _feed_thread_lock:
+            if _feed_thread_instance is not None:
+                _feed_thread_instance.stop()
+                _feed_thread_instance.join(timeout=2.0)
+                _feed_thread_instance = None
         if self._capture:
             self._capture.stop()
         if self._ds_reader:
