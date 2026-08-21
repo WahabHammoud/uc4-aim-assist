@@ -120,7 +120,7 @@ target_lock:
   # ── Lock persistence and hysteresis (Prompt 3) ──────────────────────────
   # Frames the locked track can vanish before ENGAGED releases to NO_BOX.
   # During this window the box stays ENGAGED, driven by Kalman prediction.
-  lock_release_frames: 60
+  lock_release_frames: 120
   # Re-acquisition from NO_BOX requires higher confidence and proximity to
   # the last confirmed position — prevents snapping to a different enemy.
   min_reacq_confidence: 0.65
@@ -135,17 +135,17 @@ target_lock:
   use_fixed_box_size: true            # true: constant w/h, only centre follows enemy
   fixed_box_width_ratio: 0.13         # box width as fraction of frame_w
   fixed_box_height_ratio: 0.30        # box height as fraction of frame_h
-  smoothing_history_frames: 8         # rolling window depth (max = len(smoothing_weights))
-  smoothing_weights: [0.35, 0.20, 0.15, 0.10, 0.08, 0.05, 0.04, 0.03]  # newest-first
+  smoothing_history_frames: 3         # rolling window depth (max = len(smoothing_weights))
+  smoothing_weights: [0.50, 0.30, 0.20]  # newest-first
   # Secondary EMA on the smoothed centre (applied after weighted history).
-  # 0.10 = gentle lag; 0.0 = disabled.
-  center_ema_alpha: 0.10
+  # 0.05 = minimal lag; 0.0 = disabled.
+  center_ema_alpha: 0.05
 
 roi:
   # Fraction of bbox (0=left/top, 1=right/bottom)
-  y_start_ratio: 0.10                 # Start at 10% from top (above head for buffer)
-  y_end_ratio:   0.65                 # End at 65% (waist level)
-  aim_point_ratio: 0.70               # Aim point Y: 70% from top (lower body)
+  y_start_ratio: 0.0                  # Start at top of bbox (head)
+  y_end_ratio:   0.75                 # End at 75% (waist level)
+  aim_point_ratio: 0.25               # Aim point Y: 25% from top (upper body / chest)
   aim_point_x_ratio: 0.40            # Aim point X: 40% from left edge of bbox
 
 pid:
